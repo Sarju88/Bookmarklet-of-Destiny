@@ -1,4 +1,4 @@
-# Bookmarklet-of-Destiny
+
 # Bookmarklet of Destiny
 
 Bookmarklet of Destiny is a self-contained Chrome bookmarklet that opens a compact Matrix-themed utility dashboard over almost any website. It requires no extension, account, installation, external server, or permissions.
