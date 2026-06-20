@@ -75,9 +75,3 @@ Bookmarklet of Destiny:
 
 Notes, todos, settings, histories, and scores use versioned `localStorage`. Because bookmarklets run under the current website’s origin, saved data may be separate for each website.
 
-## Development
-
-```sh
-npm install
-npm run build
-npm run dev
