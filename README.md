@@ -1,77 +1,32 @@
-
 # Bookmarklet of Destiny
 
-Bookmarklet of Destiny is a self-contained Chrome bookmarklet that opens a compact Matrix-themed utility dashboard over almost any website. It requires no extension, account, installation, external server, or permissions.
+A self-contained Chrome bookmarklet that opens a centered popup dashboard with Matrix rain, productivity tools, page controls, and five games. The popup stays compact so the current browser tab remains visible behind it.
 
-The dashboard opens in a separate resizable popup, allowing the original browser tab to remain visible.
+## Install
 
-## Features
+```sh
+npm install
+npm run build
+npm run dev
+```
 
-### Productivity Tools
+Open <http://127.0.0.1:4173>, then:
 
-- Scientific calculator with history
-- Notes and todo list
-- Timer, stopwatch, alarms, and Pomodoro mode
-- Unit converters
-- Text counters and case conversion
-- Base64 and URL encoding
-- JSON formatter
-- Password and UUID generators
-- Dice, coin flip, and random picker
-- QR-code generator
-- Drawing pad with image download
+1. Drag **Launch Destiny** to Chrome’s bookmarks bar.
+2. Open a normal website such as Google Search or Wikipedia.
+3. Click **Launch Destiny** in the bookmarks bar.
 
-### Page Controls
+It is designed to run on most ordinary websites. Chrome itself blocks bookmarklets on New Tab, `chrome://`, extension pages, and the Chrome Web Store; those are the expected exceptions. Use **Test Launch** on the installer to verify the resizable popup.
 
-Modify the website from which the dashboard was opened:
+## Development
 
-- Dark mode
-- Editable page mode
-- Hide images
-- Invert and grayscale filters
-- Remove overlays
-- Reset reversible changes
+- `preview.html` is the complete development preview.
+- `index.html` is the generated installation page and GitHub Pages entry point.
+- `src/app.js` and `src/styles.css` are the editable sources.
+- `npm test` rebuilds and runs artifact, Chrome, popup, persistence, utility, and game smoke tests.
 
-### Games
+Saved notes, tasks, settings, history, and scores use versioned `localStorage`. Because bookmarklets run in the current page’s origin, saved data is separate for each website.
 
-- Snake
-- 2048
-- Minesweeper
-- Tic-Tac-Toe
-- Pong
+Chrome does not permit bookmarklets on protected pages such as `chrome://`, the New Tab page, extension pages, or the Chrome Web Store.
 
-Games include keyboard controls, restarting, pausing where applicable, and locally saved high scores.
-
-## Installation
-
-1. Open the Bookmarklet of Destiny installation page.
-2. Drag **Launch Destiny** to Chrome’s bookmarks bar.
-3. Open an ordinary website such as Google, Wikipedia, Gmail, or YouTube.
-4. Click **Launch Destiny** in the bookmarks bar.
-
-The installer also provides **Copy Bookmarklet** and **Test Launch** controls.
-
-## Browser Limitations
-
-Chrome does not allow bookmarklets to run on protected pages, including:
-
-- New Tab
-- `chrome://` pages
-- Chrome Web Store
-- Extension pages
-
-Open a normal `http://` or `https://` website before launching it.
-
-## Privacy and Offline Operation
-
-Bookmarklet of Destiny:
-
-- Makes no network requests
-- Uses no analytics
-- Requires no account
-- Loads no external assets
-- Requests no browser permissions
-- Stores data locally in the browser
-
-Notes, todos, settings, histories, and scores use versioned `localStorage`. Because bookmarklets run under the current website’s origin, saved data may be separate for each website.
-
+All tools work offline. When internet access is available, the USD/INR converter checks the fixed [Frankfurter](https://frankfurter.dev/) exchange-rate endpoint at most once every 12 hours and caches the latest daily reference rate. No API key, account, analytics, or other external requests are used.
