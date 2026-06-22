@@ -257,6 +257,77 @@ test("calendar navigation and local date calculations handle boundaries", async 
   });
 });
 
+test("world clock persists clocks and handles DST and fractional offsets", async () => {
+  await withBrowser(async ({ page }) => {
+    await page.addInitScript(() => {
+      window.__BOD_TEST_NOW__ = "2024-01-15T12:00:00Z";
+      window.__BOD_TEST_TIME_ZONE__ = "UTC";
+    });
+    await page.goto(`${base}/preview.html?page=worldclock`);
+    const worldState = () => page.evaluate(() => JSON.parse(window.render_world_clock_to_text()));
+    assert.equal((await worldState()).localZone, "UTC");
+    assert.equal((await worldState()).zones.length, 5);
+    assert.equal(await page.locator(".world-clock-card").count(), 5);
+    assert.match(await page.locator(".world-clock-card").first().textContent(), /LOCAL TIME.*UTC.*SAME DAY/s);
+    assert.match(await page.locator(".world-clock-grid").textContent(), /NEW YORK|LONDON|DELHI|TOKYO/);
+    assert.ok(await page.locator("#clockZoneAdd option").count() > 300);
+
+    const beforeFormat = (await worldState()).hour24;
+    await page.locator("#clockFormat").click();
+    assert.equal((await worldState()).hour24, !beforeFormat);
+    await page.reload();
+    assert.equal((await worldState()).hour24, !beforeFormat);
+
+    const chatham = await page.locator("#clockZoneAdd option").evaluateAll(options => options.find(option => /Pacific\/Chatham/.test(option.value))?.value);
+    assert.ok(chatham);
+    await page.locator("#clockZoneAdd").selectOption(chatham);
+    await page.locator("#clockAdd").click();
+    assert.equal(await page.locator(".world-clock-card").count(), 6);
+    await page.locator("#clockAdd").click();
+    assert.equal(await page.locator(".world-clock-card").count(), 6);
+    const zonesBeforeMove = (await worldState()).zones;
+    await page.locator("[data-clock-down='1']").click();
+    const zonesAfterMove = (await worldState()).zones;
+    assert.equal(zonesAfterMove[2], zonesBeforeMove[1]);
+    await page.reload();
+    assert.deepEqual((await worldState()).zones, zonesAfterMove);
+    const chathamIndex = (await worldState()).zones.indexOf(canonicalForTest(chatham));
+    await page.locator(`[data-clock-remove='${chathamIndex}']`).click();
+    assert.equal((await worldState()).zones.some(zone => /Chatham/.test(zone)), false);
+
+    await page.locator("#clockFormat").click();
+    if (!(await worldState()).hour24) await page.locator("#clockFormat").click();
+    await page.locator("#worldFromZone").selectOption("America/New_York");
+    await page.locator("#worldToZone").selectOption("Europe/London");
+    await page.locator("#worldConvertTime").fill("2024-03-10T02:30");
+    await page.locator("#worldConvert").click();
+    assert.match(await page.locator("#worldConvertResult").textContent(), /does not exist/i);
+    await page.locator("#worldConvertTime").fill("2024-11-03T01:30");
+    await page.locator("#worldConvert").click();
+    const overlap = await page.locator("#worldConvertResult").textContent();
+    assert.match(overlap, /TWO VALID RESULTS/i);
+    assert.match(overlap, /05:30/);
+    assert.match(overlap, /06:30/);
+
+    await page.locator("#worldFromZone").selectOption(canonicalForTest("Asia/Kathmandu"));
+    await page.locator("#worldToZone").selectOption("UTC");
+    await page.locator("#worldConvertTime").fill("2024-01-01T00:00");
+    await page.locator("#worldConvert").click();
+    assert.match(await page.locator("#worldConvertResult").textContent(), /Dec 31, 2023.*18:15/s);
+    await page.locator("#worldFromZone").selectOption(chatham);
+    await page.locator("#worldConvertTime").fill("2024-01-01T00:00");
+    await page.locator("#worldConvert").click();
+    assert.match(await page.locator("#worldConvertResult").textContent(), /Dec 31, 2023.*10:15/s);
+    await page.locator("#worldConvertTime").fill("");
+    await page.locator("#worldConvert").click();
+    assert.match(await page.locator("#worldConvertResult").textContent(), /valid date/i);
+  });
+});
+
+function canonicalForTest(zone) {
+  return new Intl.DateTimeFormat("en-US", { timeZone: zone }).resolvedOptions().timeZone;
+}
+
 test("bookmarklet opens a reusable self-contained popup on strict CSP pages", async () => {
   await withBrowser(async ({ context, page }) => {
     const raw = await readFile("dist/bookmarklet.txt", "utf8");
@@ -277,7 +348,7 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     assert.equal(context.pages().length, 2);
     assert.equal(await panel.locator("html").getAttribute("data-ready"), "1");
     assert.equal(panel.url(), "about:blank");
-    for (const module of ["calculator", "organizer", "time", "calendar", "convert", "text", "random", "qr", "draw", "page", "games", "settings", "help", "home"]) {
+    for (const module of ["calculator", "organizer", "time", "calendar", "worldclock", "convert", "text", "random", "qr", "draw", "page", "games", "settings", "help", "home"]) {
       await panel.locator(`[data-page="${module}"]`).click();
       await panel.locator(".page h2").waitFor();
       assert.ok((await panel.locator(".page h2").textContent()).trim().length > 0);

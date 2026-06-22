@@ -26,6 +26,7 @@ const PAGES = [
   ["organizer", "✓", "Notes & Todos"],
   ["time", "◷", "Time Systems"],
   ["calendar", "▣", "Calendar"],
+  ["worldclock", "◉", "World Clock"],
   ["convert", "⇄", "Converters"],
   ["text", "¶", "Text Lab"],
   ["random", "⚄", "Random Lab"],
@@ -46,7 +47,9 @@ const defaults = {
   settings: {
     rain: true, sound: false, density: 1, accent: "#39ff88",
     usdInrRate: 94.37, usdInrSourceDate: "", usdInrUpdatedAt: 0,
-    usdInrLastAttemptAt: 0, usdInrManual: false
+    usdInrLastAttemptAt: 0, usdInrManual: false,
+    worldClocks: ["America/New_York", "Europe/London", "Asia/Kolkata", "Asia/Tokyo"],
+    worldClock24: null
   }
 };
 
@@ -532,7 +535,7 @@ function navigate(page) {
 
 function renderPage() {
   const content = $("#content");
-  const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, calendar: calendarPage, convert: convertPage, text: textPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
+  const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, calendar: calendarPage, worldclock: worldClockPage, convert: convertPage, text: textPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
   setHTML(content, "");
   renderers[state.page](content);
   state.cleanup.push(enhanceSelects(content));
@@ -790,6 +793,130 @@ function calendarPage(root) {
   window.render_calendar_to_text = () => JSON.stringify({ view, today, firstWeekday: new Date(view.year, view.month - 1, 1).getDay(), days: daysInMonth(view.year, view.month) });
   state.cleanup.push(() => { delete window.render_calendar_to_text; });
   renderCalendar();
+}
+
+const supportedTimeZones = (() => {
+  let zones;
+  try { zones = Intl.supportedValuesOf("timeZone"); }
+  catch { zones = ["America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "Europe/London", "Europe/Paris", "Asia/Kolkata", "Asia/Tokyo", "Australia/Sydney", "Pacific/Auckland"]; }
+  return ["UTC", ...zones.filter(zone => zone !== "UTC")];
+})();
+const canonicalTimeZone = zone => {
+  try { return new Intl.DateTimeFormat("en-US", { timeZone: zone }).resolvedOptions().timeZone; }
+  catch { return null; }
+};
+const canonicalSupportedTimeZones = () => [...new Set(supportedTimeZones.map(canonicalTimeZone).filter(Boolean))];
+const worldClockNow = () => {
+  const override = window.__BOD_TEST_NOW__;
+  const date = override === undefined ? new Date() : new Date(override);
+  return Number.isFinite(date.getTime()) ? date : new Date();
+};
+const localTimeZone = () => canonicalTimeZone(window.__BOD_TEST_TIME_ZONE__ || Intl.DateTimeFormat().resolvedOptions().timeZone) || "UTC";
+const zoneName = zone => ({ "America/New_York": "New York", "Europe/London": "London", "Asia/Calcutta": "Delhi", "Asia/Kolkata": "Delhi", "Asia/Tokyo": "Tokyo" }[zone] || zone.split("/").pop().replaceAll("_", " "));
+const zoneParts = (instant, zone) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone, calendar: "gregory", numberingSystem: "latn",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+  }).formatToParts(instant);
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return { year: +values.year, month: +values.month, day: +values.day, hour: +values.hour, minute: +values.minute, second: +values.second };
+};
+const zoneOffsetMinutes = (instant, zone) => {
+  const parts = zoneParts(instant, zone);
+  return Math.round((Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) - instant.getTime()) / 60000);
+};
+const formatOffset = minutes => `${minutes < 0 ? "−" : "+"}${String(Math.floor(Math.abs(minutes) / 60)).padStart(2, "0")}:${String(Math.abs(minutes) % 60).padStart(2, "0")}`;
+const parseWallDateTime = value => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(String(value || ""));
+  if (!match) return null;
+  const parts = { year: +match[1], month: +match[2], day: +match[3], hour: +match[4], minute: +match[5] };
+  return validDateParts(parts) && parts.hour >= 0 && parts.hour <= 23 && parts.minute >= 0 && parts.minute <= 59 ? parts : null;
+};
+const sameWallTime = (parts, target) => ["year","month","day","hour","minute"].every(key => parts[key] === target[key]);
+const resolveWallTime = (wall, zone) => {
+  const guess = Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute);
+  const offsets = new Set();
+  for (let delta = -48; delta <= 48; delta += 6) offsets.add(zoneOffsetMinutes(new Date(guess + delta * 3600000), zone));
+  return [...offsets].map(offset => new Date(guess - offset * 60000)).filter(instant => sameWallTime(zoneParts(instant, zone), wall)).sort((a, b) => a - b).filter((instant, index, all) => !index || instant.getTime() !== all[index - 1].getTime());
+};
+
+function worldClockPage(root) {
+  const localZone = localTimeZone();
+  if (Store.data.settings.worldClock24 === null) {
+    Store.data.settings.worldClock24 = Intl.DateTimeFormat(undefined, { hour: "numeric" }).resolvedOptions().hour12 === false;
+    Store.save();
+  }
+  Store.data.settings.worldClocks = [...new Set((Store.data.settings.worldClocks || []).map(canonicalTimeZone).filter(zone => zone && zone !== localZone))];
+  const zoneOptions = canonicalSupportedTimeZones().map(zone => `<option value="${escapeHtml(zone)}">${escapeHtml(zone.replaceAll("_", " "))}</option>`).join("");
+  const defaultDateTime = (() => {
+    const parts = zoneParts(worldClockNow(), localZone);
+    return `${formatDateParts(parts)}T${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
+  })();
+  setHTML(root, pageFrame("WORLD CLOCK", "Live IANA time zones and daylight-saving-aware conversion.", `<div class="grid">
+    <div class="card full"><div class="row wrap"><div class="select-field" style="flex:1"><label class="select-label" for="clockZoneAdd">Add clock</label><select id="clockZoneAdd" class="select-full">${zoneOptions}</select></div><button id="clockAdd">ADD CLOCK</button><button id="clockFormat">FORMAT: ${Store.data.settings.worldClock24 ? "24H" : "12H"}</button></div></div>
+    <div class="card full"><div class="world-clock-grid" id="worldClockGrid"></div></div>
+    <div class="card full"><h3>Time-zone converter</h3><div class="grid">
+      <div class="card"><label>Source date and time<input type="datetime-local" id="worldConvertTime" value="${defaultDateTime}"></label><div class="select-field" style="margin-top:10px"><label class="select-label" for="worldFromZone">Source zone</label><select id="worldFromZone" class="select-full"><option value="${escapeHtml(localZone)}">LOCAL — ${escapeHtml(localZone)}</option>${zoneOptions}</select></div></div>
+      <div class="card"><div class="select-field"><label class="select-label" for="worldToZone">Destination zone</label><select id="worldToZone" class="select-full">${zoneOptions}</select></div><button id="worldConvert" style="margin-top:10px">CONVERT</button><div class="output" id="worldConvertResult" style="margin-top:10px">Choose a date, time, and zones.</div></div>
+    </div></div>
+  </div>`));
+  $("#worldToZone").value = canonicalTimeZone("Asia/Kolkata") || "Asia/Calcutta";
+  const formatClock = (instant, zone) => {
+    const hour12 = !Store.data.settings.worldClock24;
+    const date = new Intl.DateTimeFormat(undefined, { timeZone: zone, weekday: "short", year: "numeric", month: "short", day: "numeric" }).format(instant);
+    const time = new Intl.DateTimeFormat(undefined, { timeZone: zone, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12 }).format(instant);
+    return { date, time, parts: zoneParts(instant, zone), offset: zoneOffsetMinutes(instant, zone) };
+  };
+  const paint = () => {
+    const now = worldClockNow(), local = formatClock(now, localZone), zones = [localZone, ...Store.data.settings.worldClocks];
+    setHTML($("#worldClockGrid"), zones.map((zone, index) => {
+      const info = formatClock(now, zone), dayDelta = dateSerial(info.parts) - dateSerial(local.parts);
+      return `<div class="world-clock-card${index === 0 ? " local" : ""}">
+        <div class="world-clock-head"><div><b>${index === 0 ? "LOCAL TIME" : escapeHtml(zoneName(zone).toUpperCase())}</b><small>${escapeHtml(zone)}</small></div>${index ? `<div class="row"><button data-clock-up="${index}" aria-label="Move ${escapeHtml(zoneName(zone))} up" ${index === 1 ? "disabled" : ""}>↑</button><button data-clock-down="${index}" aria-label="Move ${escapeHtml(zoneName(zone))} down" ${index === zones.length - 1 ? "disabled" : ""}>↓</button><button data-clock-remove="${index}" class="danger" aria-label="Remove ${escapeHtml(zoneName(zone))}">×</button></div>` : ""}</div>
+        <div class="world-clock-time">${escapeHtml(info.time)}</div><div class="world-clock-meta"><span>${escapeHtml(info.date)}</span><span>UTC${formatOffset(info.offset)}</span><span>${dayDelta === 0 ? "SAME DAY" : dayDelta > 0 ? `+${dayDelta} DAY` : `${dayDelta} DAY`}</span></div>
+      </div>`;
+    }).join(""));
+    $$("[data-clock-remove]").forEach(button => button.onclick = () => {
+      Store.data.settings.worldClocks.splice(Number(button.dataset.clockRemove) - 1, 1); Store.save(); paint();
+    });
+    $$("[data-clock-up]").forEach(button => button.onclick = () => {
+      const index = Number(button.dataset.clockUp) - 1;
+      if (index > 0) [Store.data.settings.worldClocks[index - 1], Store.data.settings.worldClocks[index]] = [Store.data.settings.worldClocks[index], Store.data.settings.worldClocks[index - 1]];
+      Store.save(); paint();
+    });
+    $$("[data-clock-down]").forEach(button => button.onclick = () => {
+      const index = Number(button.dataset.clockDown) - 1;
+      if (index < Store.data.settings.worldClocks.length - 1) [Store.data.settings.worldClocks[index + 1], Store.data.settings.worldClocks[index]] = [Store.data.settings.worldClocks[index], Store.data.settings.worldClocks[index + 1]];
+      Store.save(); paint();
+    });
+  };
+  $("#clockAdd").onclick = () => {
+    const zone = canonicalTimeZone($("#clockZoneAdd").value);
+    if (!zone) return toast("Unsupported time zone");
+    if (zone === localZone || Store.data.settings.worldClocks.includes(zone)) return toast("Clock already added");
+    Store.data.settings.worldClocks.push(zone); Store.save(); paint();
+  };
+  $("#clockFormat").onclick = () => {
+    Store.data.settings.worldClock24 = !Store.data.settings.worldClock24; Store.save();
+    $("#clockFormat").textContent = `FORMAT: ${Store.data.settings.worldClock24 ? "24H" : "12H"}`; paint();
+  };
+  $("#worldConvert").onclick = () => {
+    const wall = parseWallDateTime($("#worldConvertTime").value);
+    const from = canonicalTimeZone($("#worldFromZone").value), to = canonicalTimeZone($("#worldToZone").value);
+    if (!wall || !from || !to) return $("#worldConvertResult").textContent = "ERR: Choose a valid date, time, and two supported zones.";
+    const instants = resolveWallTime(wall, from);
+    if (!instants.length) return $("#worldConvertResult").textContent = "ERR: This local time does not exist because the clock moves forward for daylight saving time.";
+    const results = instants.map(instant => {
+      const info = formatClock(instant, to);
+      return `${info.date} · ${info.time} · UTC${formatOffset(info.offset)}`;
+    });
+    $("#worldConvertResult").textContent = instants.length > 1 ? `AMBIGUOUS SOURCE TIME — TWO VALID RESULTS:\n${results.join("\n")}` : results[0];
+  };
+  const interval = setInterval(paint, 1000);
+  window.render_world_clock_to_text = () => JSON.stringify({ localZone, zones: [localZone, ...Store.data.settings.worldClocks], hour24: Store.data.settings.worldClock24, now: worldClockNow().toISOString() });
+  state.cleanup.push(() => { clearInterval(interval); delete window.render_world_clock_to_text; });
+  Store.save(); paint();
 }
 
 const conversions = {
@@ -1178,6 +1305,7 @@ function helpPage(root) {
   setHTML(root, pageFrame("HELP & SHORTCUTS", "Operational notes for the dashboard.", `<div class="grid"><div class="card"><h3>Global controls</h3><div class="list"><div class="item"><kbd>Ctrl/⌘ K</kbd><span>Command palette</span></div><div class="item"><kbd>Esc</kbd><span>Close palette / exit fullscreen</span></div><div class="item"><kbd>F</kbd><span>Fullscreen active canvas game</span></div></div></div>
     <div class="card"><h3>Game controls</h3><div class="list"><div class="item"><kbd>WASD / Arrows</kbd><span>Snake, 2048, Pong</span></div><div class="item"><kbd>Space</kbd><span>Pause Snake or Pong</span></div><div class="item"><kbd>Right click</kbd><span>Flag Minesweeper cell</span></div></div></div>
     <div class="card full"><h3>Calendar tools</h3><p class="muted">Browse a Sunday-first monthly calendar, compare dates, add or subtract whole days, and calculate age using local calendar dates.</p></div>
+    <div class="card full"><h3>World Clock</h3><p class="muted">Save live IANA time zones and convert a chosen local date and time with daylight-saving gap and overlap detection.</p></div>
     <div class="card full"><h3>Browser limitations</h3><p class="muted">Chrome blocks bookmarklets on protected pages including <code>chrome://</code>, the New Tab page, extension pages, and the Chrome Web Store. On ordinary sites, the dashboard opens in a separate resizable popup window.</p></div>
     <div class="card full"><h3>Privacy</h3><p class="muted">Only the optional USD/INR updater contacts the fixed Frankfurter exchange-rate endpoint. All other tools load no external assets and use no analytics or accounts. Notes, tasks, settings, history, rates, and scores stay in local storage belonging to the page where the bookmarklet launched.</p></div></div>`));
 }

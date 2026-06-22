@@ -7,6 +7,7 @@ A self-contained Chrome bookmarklet that opens a centered popup dashboard with M
 - Scientific calculator, notes, todos, timers, alarms, and Pomodoro
 - Sunday-first monthly calendar
 - Days-between, add/subtract days, and age calculators
+- Saved world clocks and daylight-saving-aware time-zone conversion
 - Unit and USD/INR conversion
 - Text, random, QR, drawing, and page-control tools
 - Snake, 2048, Minesweeper, Tic-Tac-Toe, and Pong

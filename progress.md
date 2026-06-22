@@ -70,3 +70,4 @@ Original prompt: Build the complete “Bookmarklet of Destiny” plan: a self-co
 - Styled every native dropdown with shared Matrix-terminal colors, custom arrows, hover/focus/disabled states, responsive sizing, and visible labels for converter, QR, Minesweeper, Pong, and Tic-Tac-Toe controls.
 - Replaced the operating-system-rendered expanded select menus with accessible custom Matrix listboxes backed by hidden native selects, including auto-positioning, full keyboard navigation, type search, dynamic option syncing, and lifecycle cleanup.
 - Added Stage 1 Calendar and Date Tools: Sunday-first month navigation, Today highlighting, signed/absolute day differences, whole-day addition/subtraction, and local-date age calculations without new storage or network use.
+- Added Stage 2 World Clock: saved/reorderable IANA clocks, 12/24-hour preference, live dates and UTC offsets, day-difference badges, and DST-aware date/time conversion with gap and overlap detection.
