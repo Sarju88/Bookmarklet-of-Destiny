@@ -328,6 +328,68 @@ function canonicalForTest(zone) {
   return new Intl.DateTimeFormat("en-US", { timeZone: zone }).resolvedOptions().timeZone;
 }
 
+test("color tools convert, generate palettes, and evaluate contrast", async () => {
+  await withBrowser(async ({ page }) => {
+    await page.goto(`${base}/preview.html?page=colors`);
+    const colorState = () => page.evaluate(() => JSON.parse(window.render_color_tools_to_text()));
+    assert.equal((await colorState()).color.hex, "#39FF88");
+    assert.match((await colorState()).color.rgb, /rgb\(57, 255, 136\)/);
+    assert.match((await colorState()).color.hsl, /hsl\(144, 100%, 61%\)/);
+    assert.equal(await page.locator(".vision-card").count(), 4);
+    assert.match(await page.locator("#visionGrid").textContent(), /PROTANOPIA.*DEUTERANOPIA.*TRITANOPIA.*ACHROMATOPSIA/s);
+
+    await page.locator("#colorHex").fill("#0F8");
+    await page.locator("#colorHex").press("Tab");
+    assert.equal((await colorState()).color.hex, "#00FF88");
+    await page.locator("#colorHex").fill("#33669980");
+    await page.locator("#colorHex").press("Tab");
+    assert.equal((await colorState()).color.hex, "#33669980");
+    assert.equal(await page.locator("#colorAlpha").inputValue(), "50");
+    await page.locator("#colorRgb").fill("rgba(255, 0, 128, 0.25)");
+    await page.locator("#colorRgb").press("Tab");
+    assert.equal((await colorState()).color.hex, "#FF008040");
+    await page.locator("#colorHsl").fill("hsl(120, 100%, 50%)");
+    await page.locator("#colorHsl").press("Tab");
+    assert.equal((await colorState()).color.hex, "#00FF00");
+    const validColor = (await colorState()).color.hex;
+    await page.locator("#colorRgb").fill("rgb(999, 0, 0)");
+    await page.locator("#colorRgb").press("Tab");
+    assert.equal((await colorState()).color.hex, validColor);
+    assert.match(await page.locator("#colorError").textContent(), /INVALID RGB/);
+    await page.locator("#colorAlpha").fill("101");
+    await page.locator("#colorAlpha").press("Tab");
+    assert.equal((await colorState()).color.hex, validColor);
+    assert.match(await page.locator("#colorError").textContent(), /0–100/);
+
+    const expectedCounts = { complementary: 2, analogous: 5, triadic: 3, split: 3, tetradic: 4, monochromatic: 5, shades: 5 };
+    for (const [mode, count] of Object.entries(expectedCounts)) {
+      await page.locator("#paletteType").selectOption(mode);
+      assert.equal((await colorState()).palette.length, count);
+      assert.equal(await page.locator(".palette-swatch").count(), count);
+    }
+    await page.locator("#paletteType").selectOption("triadic");
+    assert.deepEqual((await colorState()).palette, ["#00FF00", "#0000FF", "#FF0000"]);
+
+    await page.locator("#contrastForeground").fill("#000000");
+    await page.locator("#contrastBackground").fill("#ffffff");
+    assert.equal((await colorState()).contrast, 21);
+    assert.match(await page.locator("#contrastResults").textContent(), /21\.00:1.*NORMAL AA PASS.*NORMAL AAA PASS.*LARGE AA PASS.*LARGE AAA PASS/s);
+    await page.locator("#contrastSwap").click();
+    assert.equal(await page.locator("#contrastForeground").inputValue(), "#ffffff");
+    assert.equal(await page.locator("#contrastBackground").inputValue(), "#000000");
+    await page.locator("#contrastForeground").fill("#777777");
+    await page.locator("#contrastBackground").fill("#ffffff");
+    assert.match(await page.locator("#contrastResults").textContent(), /NORMAL AA FAIL.*LARGE AA PASS/s);
+
+    await page.locator('[data-color-copy="hex"]').click();
+    await page.waitForTimeout(50);
+    assert.match(await page.locator(".toast").textContent(), /copied|failed/i);
+    await page.locator(".palette-swatch").first().click();
+    await page.waitForTimeout(50);
+    assert.ok(await page.locator(".toast").count() >= 1);
+  });
+});
+
 test("bookmarklet opens a reusable self-contained popup on strict CSP pages", async () => {
   await withBrowser(async ({ context, page }) => {
     const raw = await readFile("dist/bookmarklet.txt", "utf8");
@@ -348,7 +410,7 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     assert.equal(context.pages().length, 2);
     assert.equal(await panel.locator("html").getAttribute("data-ready"), "1");
     assert.equal(panel.url(), "about:blank");
-    for (const module of ["calculator", "organizer", "time", "calendar", "worldclock", "convert", "text", "random", "qr", "draw", "page", "games", "settings", "help", "home"]) {
+    for (const module of ["calculator", "organizer", "time", "calendar", "worldclock", "colors", "convert", "text", "random", "qr", "draw", "page", "games", "settings", "help", "home"]) {
       await panel.locator(`[data-page="${module}"]`).click();
       await panel.locator(".page h2").waitFor();
       assert.ok((await panel.locator(".page h2").textContent()).trim().length > 0);

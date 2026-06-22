@@ -8,6 +8,7 @@ A self-contained Chrome bookmarklet that opens a centered popup dashboard with M
 - Sunday-first monthly calendar
 - Days-between, add/subtract days, and age calculators
 - Saved world clocks and daylight-saving-aware time-zone conversion
+- HEX/RGB/HSL conversion, palettes, WCAG contrast, and color-vision previews
 - Unit and USD/INR conversion
 - Text, random, QR, drawing, and page-control tools
 - Snake, 2048, Minesweeper, Tic-Tac-Toe, and Pong

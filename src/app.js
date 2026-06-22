@@ -27,6 +27,7 @@ const PAGES = [
   ["time", "◷", "Time Systems"],
   ["calendar", "▣", "Calendar"],
   ["worldclock", "◉", "World Clock"],
+  ["colors", "⬡", "Color Tools"],
   ["convert", "⇄", "Converters"],
   ["text", "¶", "Text Lab"],
   ["random", "⚄", "Random Lab"],
@@ -535,7 +536,7 @@ function navigate(page) {
 
 function renderPage() {
   const content = $("#content");
-  const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, calendar: calendarPage, worldclock: worldClockPage, convert: convertPage, text: textPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
+  const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, calendar: calendarPage, worldclock: worldClockPage, colors: colorToolsPage, convert: convertPage, text: textPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
   setHTML(content, "");
   renderers[state.page](content);
   state.cleanup.push(enhanceSelects(content));
@@ -917,6 +918,119 @@ function worldClockPage(root) {
   window.render_world_clock_to_text = () => JSON.stringify({ localZone, zones: [localZone, ...Store.data.settings.worldClocks], hour24: Store.data.settings.worldClock24, now: worldClockNow().toISOString() });
   state.cleanup.push(() => { clearInterval(interval); delete window.render_world_clock_to_text; });
   Store.save(); paint();
+}
+
+const clampColor = value => Math.min(255, Math.max(0, Math.round(value)));
+const colorHex = ({ r, g, b, a = 1 }, includeAlpha = a < 1) => `#${[r,g,b].map(value => clampColor(value).toString(16).padStart(2, "0")).join("")}${includeAlpha ? clampColor(a * 255).toString(16).padStart(2, "0") : ""}`.toUpperCase();
+const parseHexColor = value => {
+  let hex = String(value || "").trim().replace(/^#/, "");
+  if (![3,4,6,8].includes(hex.length) || !/^[0-9a-f]+$/i.test(hex)) return null;
+  if (hex.length <= 4) hex = [...hex].map(char => char + char).join("");
+  return { r: parseInt(hex.slice(0,2),16), g: parseInt(hex.slice(2,4),16), b: parseInt(hex.slice(4,6),16), a: hex.length === 8 ? parseInt(hex.slice(6,8),16) / 255 : 1 };
+};
+const parseRgbColor = value => {
+  const match = String(value || "").trim().match(/^rgba?\(\s*([+-]?\d*\.?\d+)\s*,\s*([+-]?\d*\.?\d+)\s*,\s*([+-]?\d*\.?\d+)(?:\s*,\s*([+-]?\d*\.?\d+%?))?\s*\)$/i);
+  if (!match) return null;
+  const channels = match.slice(1,4).map(Number);
+  let alpha = match[4] === undefined ? 1 : match[4].endsWith("%") ? Number(match[4].slice(0,-1)) / 100 : Number(match[4]);
+  if (channels.some(value => !Number.isFinite(value) || value < 0 || value > 255) || !Number.isFinite(alpha) || alpha < 0 || alpha > 1) return null;
+  return { r: clampColor(channels[0]), g: clampColor(channels[1]), b: clampColor(channels[2]), a: alpha };
+};
+const rgbToHsl = ({ r, g, b }) => {
+  const red=r/255,green=g/255,blue=b/255,max=Math.max(red,green,blue),min=Math.min(red,green,blue),delta=max-min;
+  let h=0;if(delta)h=max===red?60*(((green-blue)/delta)%6):max===green?60*((blue-red)/delta+2):60*((red-green)/delta+4);
+  if(h<0)h+=360;const l=(max+min)/2,s=delta?delta/(1-Math.abs(2*l-1)):0;
+  return { h, s:s*100, l:l*100 };
+};
+const hslToRgb = ({ h, s, l, a = 1 }) => {
+  h=((h%360)+360)%360;s/=100;l/=100;const c=(1-Math.abs(2*l-1))*s,x=c*(1-Math.abs((h/60)%2-1)),m=l-c/2;
+  const [r,g,b]=h<60?[c,x,0]:h<120?[x,c,0]:h<180?[0,c,x]:h<240?[0,x,c]:h<300?[x,0,c]:[c,0,x];
+  return { r:clampColor((r+m)*255),g:clampColor((g+m)*255),b:clampColor((b+m)*255),a };
+};
+const parseHslColor = value => {
+  const match = String(value || "").trim().match(/^hsla?\(\s*([+-]?\d*\.?\d+)(?:deg)?\s*,\s*([+-]?\d*\.?\d+)%\s*,\s*([+-]?\d*\.?\d+)%(?:\s*,\s*([+-]?\d*\.?\d+%?))?\s*\)$/i);
+  if (!match) return null;
+  const h=Number(match[1]),s=Number(match[2]),l=Number(match[3]);
+  const a=match[4]===undefined?1:match[4].endsWith("%")?Number(match[4].slice(0,-1))/100:Number(match[4]);
+  if (![h,s,l,a].every(Number.isFinite)||s<0||s>100||l<0||l>100||a<0||a>1)return null;
+  return hslToRgb({h,s,l,a});
+};
+const colorRgb = ({ r,g,b,a=1 }) => a < 1 ? `rgba(${r}, ${g}, ${b}, ${Number(a.toFixed(3))})` : `rgb(${r}, ${g}, ${b})`;
+const colorHsl = color => {
+  const {h,s,l}=rgbToHsl(color),a=color.a??1;
+  return `${a<1?"hsla":"hsl"}(${Math.round(h)}, ${Math.round(s)}%, ${Math.round(l)}%${a<1?`, ${Number(a.toFixed(3))}`:""})`;
+};
+const colorLuminance = ({r,g,b}) => {
+  const transform=value=>{value/=255;return value<=.04045?value/12.92:((value+.055)/1.055)**2.4};
+  return .2126*transform(r)+.7152*transform(g)+.0722*transform(b);
+};
+const contrastRatio = (first,second) => { const a=colorLuminance(first),b=colorLuminance(second);return (Math.max(a,b)+.05)/(Math.min(a,b)+.05); };
+const readableColor = color => contrastRatio(color,{r:255,g:255,b:255}) >= contrastRatio(color,{r:0,g:0,b:0}) ? "#FFFFFF" : "#000000";
+const mixColor = (first,second,amount) => ({r:clampColor(first.r+(second.r-first.r)*amount),g:clampColor(first.g+(second.g-first.g)*amount),b:clampColor(first.b+(second.b-first.b)*amount),a:first.a??1});
+const paletteColors = (color,type) => {
+  const hsl=rgbToHsl(color),at=(h,s=hsl.s,l=hsl.l)=>hslToRgb({h,s,l,a:color.a??1});
+  const hues=offsets=>offsets.map(offset=>at(hsl.h+offset));
+  if(type==="complementary")return hues([0,180]);
+  if(type==="analogous")return hues([-60,-30,0,30,60]);
+  if(type==="triadic")return hues([0,120,240]);
+  if(type==="split")return hues([0,150,210]);
+  if(type==="tetradic")return hues([0,60,180,240]);
+  if(type==="monochromatic")return [20,35,50,65,80].map(light=>at(hsl.h,hsl.s,light));
+  return [mixColor(color,{r:0,g:0,b:0},.65),mixColor(color,{r:0,g:0,b:0},.35),color,mixColor(color,{r:255,g:255,b:255},.35),mixColor(color,{r:255,g:255,b:255},.65)];
+};
+const simulateVision = (color,mode) => {
+  const matrices={
+    protanopia:[[.567,.433,0],[.558,.442,0],[0,.242,.758]],
+    deuteranopia:[[.625,.375,0],[.7,.3,0],[0,.3,.7]],
+    tritanopia:[[.95,.05,0],[0,.433,.567],[0,.475,.525]],
+    achromatopsia:[[.299,.587,.114],[.299,.587,.114],[.299,.587,.114]]
+  },matrix=matrices[mode];
+  return {r:clampColor(matrix[0][0]*color.r+matrix[0][1]*color.g+matrix[0][2]*color.b),g:clampColor(matrix[1][0]*color.r+matrix[1][1]*color.g+matrix[1][2]*color.b),b:clampColor(matrix[2][0]*color.r+matrix[2][1]*color.g+matrix[2][2]*color.b),a:color.a??1};
+};
+
+function colorToolsPage(root) {
+  let color=parseHexColor("#39FF88"),foreground=parseHexColor("#FFFFFF"),background=parseHexColor("#020704"),paletteType="complementary";
+  setHTML(root,pageFrame("COLOR TOOLS","Convert, generate, test contrast, and preview color perception.",`<div class="grid">
+    <div class="card full"><div class="color-editor"><input type="color" id="colorPicker" value="#39ff88" aria-label="Color picker"><div class="color-main-swatch" id="colorMainSwatch"></div><div class="stack"><label>HEX<input id="colorHex" value="#39FF88"></label><label>RGB<input id="colorRgb"></label><label>HSL<input id="colorHsl"></label><label>Alpha %<input id="colorAlpha" type="number" min="0" max="100" value="100"></label></div></div><div class="output" id="colorError" style="margin-top:10px">VALID COLOR</div><div class="row wrap" style="margin-top:10px"><button data-color-copy="hex">COPY HEX</button><button data-color-copy="rgb">COPY RGB</button><button data-color-copy="hsl">COPY HSL</button><button data-color-copy="css">COPY CSS VARIABLE</button></div></div>
+    <div class="card full"><h3>Palette generator</h3><div class="select-field"><label class="select-label" for="paletteType">Relationship</label><select id="paletteType" class="select-compact"><option value="complementary">Complementary</option><option value="analogous">Analogous</option><option value="triadic">Triadic</option><option value="split">Split-complementary</option><option value="tetradic">Tetradic</option><option value="monochromatic">Monochromatic</option><option value="shades">Shades & tints</option></select></div><div class="color-palette" id="colorPalette"></div></div>
+    <div class="card full"><h3>WCAG 2.x contrast checker</h3><div class="split"><label>Foreground<input type="color" id="contrastForeground" value="#ffffff"></label><label>Background<input type="color" id="contrastBackground" value="#020704"></label></div><button id="contrastSwap" style="margin-top:10px">SWAP COLORS</button><div class="contrast-preview" id="contrastPreview">The quick brown fox jumps over the lazy dog.</div><div class="contrast-results" id="contrastResults"></div></div>
+    <div class="card full"><h3>Color-vision previews</h3><p class="muted">Approximate simulations only — not diagnostic.</p><div class="vision-grid" id="visionGrid"></div></div>
+  </div>`));
+  const formats=()=>({hex:colorHex(color),rgb:colorRgb(color),hsl:colorHsl(color),css:`--color: ${colorHex(color)};`});
+  const copy=async value=>{try{await navigator.clipboard.writeText(value);toast("Color copied")}catch{toast("Copy failed")}};
+  const update=()=>{
+    const values=formats(),opaque=colorHex({...color,a:1});
+    $("#colorPicker").value=opaque.toLowerCase();$("#colorHex").value=values.hex;$("#colorRgb").value=values.rgb;$("#colorHsl").value=values.hsl;$("#colorAlpha").value=Math.round((color.a??1)*100);
+    $("#colorMainSwatch").style.background=values.rgb;$("#colorMainSwatch").textContent=values.hex;$("#colorMainSwatch").style.color=readableColor(color);$("#colorError").textContent="VALID COLOR";
+    const generated=paletteColors(color,paletteType);
+    setHTML($("#colorPalette"),generated.map((entry,index)=>`<button class="palette-swatch" data-palette-copy="${index}" style="background:${colorRgb(entry)};color:${readableColor(entry)}"><b>${colorHex(entry)}</b><span>${colorHsl(entry)}</span></button>`).join(""));
+    $$("[data-palette-copy]").forEach(button=>button.onclick=()=>copy(colorHex(generated[Number(button.dataset.paletteCopy)])));
+    const modes=[["protanopia","PROTANOPIA"],["deuteranopia","DEUTERANOPIA"],["tritanopia","TRITANOPIA"],["achromatopsia","ACHROMATOPSIA"]];
+    setHTML($("#visionGrid"),modes.map(([mode,label])=>{const simulated=simulateVision(color,mode);return `<div class="vision-card" style="background:${colorRgb(simulated)};color:${readableColor(simulated)}"><b>${label}</b><span>${colorHex(simulated)}</span><small>SIMULATION</small></div>`}).join(""));
+  };
+  const parseField=(field,parser)=>{
+    const parsed=parser(field.value);
+    if(!parsed){$("#colorError").textContent=`ERR: INVALID ${field.id.replace("color","").toUpperCase()} COLOR`;return}
+    color={...parsed,a:color.a??parsed.a??1};if(parsed.a!==undefined)color.a=parsed.a;update();
+  };
+  $("#colorPicker").oninput=e=>{const parsed=parseHexColor(e.target.value);if(parsed){color={...parsed,a:color.a};update()}};
+  $("#colorHex").onchange=e=>parseField(e.target,parseHexColor);
+  $("#colorRgb").onchange=e=>parseField(e.target,parseRgbColor);
+  $("#colorHsl").onchange=e=>parseField(e.target,parseHslColor);
+  $("#colorAlpha").onchange=e=>{const value=Number(e.target.value);if(!Number.isFinite(value)||value<0||value>100){$("#colorError").textContent="ERR: ALPHA MUST BE 0–100";return}color.a=value/100;update()};
+  $$("[data-color-copy]").forEach(button=>button.onclick=()=>copy(formats()[button.dataset.colorCopy]));
+  $("#paletteType").onchange=e=>{paletteType=e.target.value;update()};
+  const updateContrast=()=>{
+    const ratio=contrastRatio(foreground,background),normalAA=ratio>=4.5,normalAAA=ratio>=7,largeAA=ratio>=3,largeAAA=ratio>=4.5;
+    $("#contrastPreview").style.cssText=`color:${colorHex(foreground)};background:${colorHex(background)}`;
+    setHTML($("#contrastResults"),`<div class="metric">${ratio.toFixed(2)}:1</div><div class="contrast-badges"><span class="${normalAA?"pass":"fail"}">NORMAL AA ${normalAA?"PASS":"FAIL"}</span><span class="${normalAAA?"pass":"fail"}">NORMAL AAA ${normalAAA?"PASS":"FAIL"}</span><span class="${largeAA?"pass":"fail"}">LARGE AA ${largeAA?"PASS":"FAIL"}</span><span class="${largeAAA?"pass":"fail"}">LARGE AAA ${largeAAA?"PASS":"FAIL"}</span></div>`);
+  };
+  $("#contrastForeground").oninput=e=>{foreground=parseHexColor(e.target.value);updateContrast()};
+  $("#contrastBackground").oninput=e=>{background=parseHexColor(e.target.value);updateContrast()};
+  $("#contrastSwap").onclick=()=>{[foreground,background]=[background,foreground];$("#contrastForeground").value=colorHex(foreground).toLowerCase();$("#contrastBackground").value=colorHex(background).toLowerCase();updateContrast()};
+  window.render_color_tools_to_text=()=>JSON.stringify({color:formats(),paletteType,palette:paletteColors(color,paletteType).map(entry=>colorHex(entry)),contrast:contrastRatio(foreground,background),vision:["protanopia","deuteranopia","tritanopia","achromatopsia"].map(mode=>[mode,colorHex(simulateVision(color,mode))])});
+  state.cleanup.push(()=>delete window.render_color_tools_to_text);
+  update();updateContrast();
 }
 
 const conversions = {
@@ -1306,6 +1420,7 @@ function helpPage(root) {
     <div class="card"><h3>Game controls</h3><div class="list"><div class="item"><kbd>WASD / Arrows</kbd><span>Snake, 2048, Pong</span></div><div class="item"><kbd>Space</kbd><span>Pause Snake or Pong</span></div><div class="item"><kbd>Right click</kbd><span>Flag Minesweeper cell</span></div></div></div>
     <div class="card full"><h3>Calendar tools</h3><p class="muted">Browse a Sunday-first monthly calendar, compare dates, add or subtract whole days, and calculate age using local calendar dates.</p></div>
     <div class="card full"><h3>World Clock</h3><p class="muted">Save live IANA time zones and convert a chosen local date and time with daylight-saving gap and overlap detection.</p></div>
+    <div class="card full"><h3>Color Tools</h3><p class="muted">Convert HEX, RGB, and HSL; generate palettes; check WCAG contrast; and preview approximate color-vision simulations.</p></div>
     <div class="card full"><h3>Browser limitations</h3><p class="muted">Chrome blocks bookmarklets on protected pages including <code>chrome://</code>, the New Tab page, extension pages, and the Chrome Web Store. On ordinary sites, the dashboard opens in a separate resizable popup window.</p></div>
     <div class="card full"><h3>Privacy</h3><p class="muted">Only the optional USD/INR updater contacts the fixed Frankfurter exchange-rate endpoint. All other tools load no external assets and use no analytics or accounts. Notes, tasks, settings, history, rates, and scores stay in local storage belonging to the page where the bookmarklet launched.</p></div></div>`));
 }
