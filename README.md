@@ -9,6 +9,7 @@ A self-contained Chrome bookmarklet that opens a centered popup dashboard with M
 - Days-between, add/subtract days, and age calculators
 - Saved world clocks and daylight-saving-aware time-zone conversion
 - HEX/RGB/HSL conversion, palettes, WCAG contrast, and color-vision previews
+- Regex testing, secure text/file hashes, JWT inspection, safe Markdown, and an isolated HTML/CSS scratchpad
 - Unit and USD/INR conversion
 - Text, random, QR, drawing, and page-control tools
 - Snake, 2048, Minesweeper, Tic-Tac-Toe, and Pong

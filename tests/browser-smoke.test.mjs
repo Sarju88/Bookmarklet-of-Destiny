@@ -390,6 +390,92 @@ test("color tools convert, generate palettes, and evaluate contrast", async () =
   });
 });
 
+test("developer tools safely inspect regex, hashes, JWT, Markdown, and scratch code", async () => {
+  await withBrowser(async ({ page }) => {
+    await page.goto(`${base}/preview.html?page=developer`);
+    const developerState = () => page.evaluate(() => JSON.parse(window.render_developer_tools_to_text()));
+    assert.equal((await developerState()).activeTab, "regex");
+    assert.equal(await page.locator('[data-dev-tab]').count(), 5);
+
+    await page.locator("#regexPattern").fill("(\\w+)@(\\w+\\.\\w+)");
+    await page.locator("#regexFlags").fill("gi");
+    await page.locator("#regexInput").fill("One@site.com and Two@test.org");
+    await page.locator("#regexReplacement").fill("$1 at $2");
+    await page.locator("#runRegex").click();
+    assert.equal((await developerState()).regex.count, 2);
+    assert.match(await page.locator("#regexMatches").textContent(), /GROUPS: 1=One · 2=site.com/);
+    assert.equal(await page.locator("#regexReplace").textContent(), "One at site.com and Two at test.org");
+    await page.locator("#regexPattern").fill("[");
+    await page.locator("#runRegex").click();
+    assert.match(await page.locator("#regexMatches").textContent(), /ERROR:/);
+
+    await page.locator('[data-dev-tab="hash"]').click();
+    await page.locator("#hashText").fill("abc");
+    await page.locator("#runHash").click();
+    await page.waitForFunction(() => JSON.parse(window.render_developer_tools_to_text()).hashes?.["SHA-512"]);
+    const hashes = (await developerState()).hashes;
+    assert.equal(hashes["SHA-256"], "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    assert.equal(hashes["SHA-384"], "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7");
+    assert.equal(hashes["SHA-512"], "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f");
+    await page.locator("#hashFile").setInputFiles({ name: "sample.txt", mimeType: "text/plain", buffer: Buffer.from("abc") });
+    assert.match(await page.locator("#hashFileMeta").textContent(), /sample.txt · 3 BYTES/);
+    await page.locator("#runHash").click();
+    await page.waitForFunction(() => document.querySelector("#runHash")?.textContent === "GENERATE HASHES");
+    assert.equal((await developerState()).hashes["SHA-256"], hashes["SHA-256"]);
+
+    const toBase64Url = value => Buffer.from(JSON.stringify(value)).toString("base64url");
+    const token = `${toBase64Url({ alg: "none", typ: "JWT" })}.${toBase64Url({ sub: "user", name: "नमस्ते", iat: 1704067200, exp: 1704153600 })}.`;
+    await page.locator('[data-dev-tab="jwt"]').click();
+    await page.locator("#jwtInput").fill(token);
+    await page.locator("#decodeJwt").click();
+    assert.equal((await developerState()).jwt.payload.name, "नमस्ते");
+    assert.match(await page.locator("#jwtMeta").textContent(), /IAT:.*EXP:.*UNSIGNED TOKEN.*UNTRUSTED/s);
+    await page.locator("#jwtInput").fill("not.a.token.with.too.many.parts");
+    await page.locator("#decodeJwt").click();
+    assert.match(await page.locator("#jwtHeader").textContent(), /ERROR:/);
+
+    await page.locator('[data-dev-tab="markdown"]').click();
+    await page.locator("#markdownInput").fill("# Safe\n\n**bold** and [good](https://example.com) [bad](javascript:alert(1))\n\n<script>window.__markdownRan=1</script>\n\n```js\nconst x = 1;\n```");
+    assert.equal(await page.locator("#markdownPreview h1").textContent(), "Safe");
+    assert.equal(await page.locator("#markdownPreview strong").textContent(), "bold");
+    assert.equal(await page.locator('#markdownPreview a[href="https://example.com"]').count(), 1);
+    assert.equal(await page.locator('#markdownPreview a[href^="javascript:"]').count(), 0);
+    assert.match(await page.locator("#markdownPreview").textContent(), /<script>window.__markdownRan=1<\/script>/);
+    assert.equal(await page.evaluate(() => window.__markdownRan), undefined);
+
+    await page.locator('[data-dev-tab="scratch"]').click();
+    await page.locator("#scratchHtml").fill('<h1 onclick="window.__scratchRan=1">Hello</h1><script>window.__scratchRan=2</script><img src="https://example.com/a.png"><a href="javascript:alert(1)">bad</a>');
+    await page.locator("#scratchCss").fill('@import "https://example.com/a.css"; h1 { color: rgb(1, 2, 3); background:url(https://example.com/a.png) }');
+    await page.locator("#scratchJs").fill("window.__scratchRan=3");
+    const scratch = await page.locator("#scratchPreview").evaluate(node => ({
+      text: node.shadowRoot.textContent,
+      scripts: node.shadowRoot.querySelectorAll("script").length,
+      images: node.shadowRoot.querySelectorAll("img").length,
+      clickHandler: node.shadowRoot.querySelector("h1")?.getAttribute("onclick"),
+      href: node.shadowRoot.querySelector("a")?.getAttribute("href"),
+      color: getComputedStyle(node.shadowRoot.querySelector("h1")).color,
+      styles: [...node.shadowRoot.querySelectorAll("style")].map(style => style.textContent).join("\n")
+    }));
+    assert.match(scratch.text, /Hello/);
+    assert.equal(scratch.scripts, 0);
+    assert.equal(scratch.images, 0);
+    assert.equal(scratch.clickHandler, null);
+    assert.equal(scratch.href, null);
+    assert.equal(scratch.color, "rgb(1, 2, 3)");
+    assert.doesNotMatch(scratch.styles, /https:\/\/example.com/);
+    assert.equal(await page.evaluate(() => window.__scratchRan), undefined);
+    await capture(page, `${shots}/developer-scratchpad.png`);
+    await page.locator("#resetScratch").click();
+    assert.equal(await page.locator("#scratchHtml").inputValue(), "");
+
+    await page.locator('[data-dev-tab="regex"]').click();
+    await page.keyboard.press("ArrowRight");
+    assert.equal((await developerState()).activeTab, "hash");
+    await page.click('[data-page="home"]');
+    assert.equal(await page.evaluate(() => typeof window.render_developer_tools_to_text), "undefined");
+  });
+});
+
 test("bookmarklet opens a reusable self-contained popup on strict CSP pages", async () => {
   await withBrowser(async ({ context, page }) => {
     const raw = await readFile("dist/bookmarklet.txt", "utf8");
@@ -410,11 +496,17 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     assert.equal(context.pages().length, 2);
     assert.equal(await panel.locator("html").getAttribute("data-ready"), "1");
     assert.equal(panel.url(), "about:blank");
-    for (const module of ["calculator", "organizer", "time", "calendar", "worldclock", "colors", "convert", "text", "random", "qr", "draw", "page", "games", "settings", "help", "home"]) {
+    for (const module of ["calculator", "organizer", "time", "calendar", "worldclock", "colors", "convert", "text", "developer", "random", "qr", "draw", "page", "games", "settings", "help", "home"]) {
       await panel.locator(`[data-page="${module}"]`).click();
       await panel.locator(".page h2").waitFor();
       assert.ok((await panel.locator(".page h2").textContent()).trim().length > 0);
     }
+    await panel.locator('[data-page="developer"]').click();
+    await panel.locator("#regexPattern").fill("\\d+");
+    await panel.locator("#regexInput").fill("Version 4 has 12 tools");
+    await panel.locator("#runRegex").click();
+    assert.equal(await panel.locator(".developer-match").count(), 2);
+    await capture(panel, `${shots}/developer-popup.png`);
     await panel.locator('[data-page="calculator"]').click();
     await panel.locator("#calcInput").fill("6 * 7");
     await panel.locator("#calcInput").press("Enter");

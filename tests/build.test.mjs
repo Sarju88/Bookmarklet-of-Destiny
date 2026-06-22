@@ -11,6 +11,9 @@ test("bookmarklet is generated and self-contained", async () => {
   assert.match(source, /https:\/\/api\.frankfurter\.dev\/v2\/rates\?base=USD&quotes=INR/);
   assert.equal((source.match(/api\.frankfurter\.dev/g) || []).length, 1);
   assert.equal(/document\.write|\.srcdoc|eval\(|createObjectURL|new Blob/.test(source), false);
+  assert.equal(/new Function|Function\(["'`]/.test(source), false);
+  assert.match(source, /DECODE ONLY/);
+  assert.match(source, /SCRATCHPAD/);
   assert.match(source, /window\.open\("about:blank"/);
   assert.match(source, /bookmarkletOfDestiny_/);
   assert.match(source, /window\.open\("about:blank",popupName,features\)/);

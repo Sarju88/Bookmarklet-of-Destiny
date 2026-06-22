@@ -30,6 +30,7 @@ const PAGES = [
   ["colors", "⬡", "Color Tools"],
   ["convert", "⇄", "Converters"],
   ["text", "¶", "Text Lab"],
+  ["developer", "</>", "Developer Tools"],
   ["random", "⚄", "Random Lab"],
   ["qr", "▦", "QR Generator"],
   ["draw", "✎", "Drawing Pad"],
@@ -536,7 +537,7 @@ function navigate(page) {
 
 function renderPage() {
   const content = $("#content");
-  const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, calendar: calendarPage, worldclock: worldClockPage, colors: colorToolsPage, convert: convertPage, text: textPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
+  const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, calendar: calendarPage, worldclock: worldClockPage, colors: colorToolsPage, convert: convertPage, text: textPage, developer: developerToolsPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
   setHTML(content, "");
   renderers[state.page](content);
   state.cleanup.push(enhanceSelects(content));
@@ -1130,6 +1131,241 @@ function textPage(root) {
   }); stats();
 }
 
+const bytesToHex = buffer => [...new Uint8Array(buffer)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+const hashBytes = async (bytes, algorithm) => bytesToHex(await crypto.subtle.digest(algorithm, bytes));
+const decodeBase64Url = value => {
+  if (!/^[A-Za-z0-9_-]*={0,2}$/.test(value)) throw new Error("Invalid Base64URL data");
+  const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
+  const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+  return new TextDecoder().decode(Uint8Array.from(atob(padded), character => character.charCodeAt(0)));
+};
+const safeMarkdownUrl = value => {
+  const trimmed = value.trim();
+  return /^(https?:|mailto:|tel:|#|\/)/i.test(trimmed) ? trimmed : "";
+};
+const markdownInline = source => {
+  const tokens = [];
+  const token = html => `\u0000${tokens.push(html) - 1}\u0000`;
+  let value = String(source)
+    .replace(/`([^`\n]+)`/g, (_, code) => token(`<code>${escapeHtml(code)}</code>`))
+    .replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (_, label, url) => {
+      const safe = safeMarkdownUrl(url);
+      return safe ? token(`<a href="${escapeHtml(safe)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`) : label;
+    });
+  return escapeHtml(value)
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([^_\n]+)__/g, "<strong>$1</strong>")
+    .replace(/(^|[^\w])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+    .replace(/(^|[^\w])_([^_\n]+)_/g, "$1<em>$2</em>")
+    .replace(/~~([^~\n]+)~~/g, "<del>$1</del>")
+    .replace(/\u0000(\d+)\u0000/g, (_, index) => tokens[Number(index)] || "");
+};
+const renderMarkdown = source => {
+  const lines = String(source).replace(/\r\n?/g, "\n").split("\n");
+  const output = [];
+  let paragraph = [], list = null, code = null;
+  const flushParagraph = () => { if (paragraph.length) output.push(`<p>${markdownInline(paragraph.join(" "))}</p>`); paragraph = []; };
+  const flushList = () => { if (list) output.push(`<${list.type}>${list.items.map(item => `<li>${markdownInline(item)}</li>`).join("")}</${list.type}>`); list = null; };
+  const flushCode = () => { if (code) output.push(`<pre><code>${escapeHtml(code.lines.join("\n"))}</code></pre>`); code = null; };
+  for (const line of lines) {
+    if (code) {
+      if (/^```/.test(line)) flushCode();
+      else code.lines.push(line);
+      continue;
+    }
+    if (/^```/.test(line)) { flushParagraph(); flushList(); code = { lines: [] }; continue; }
+    if (!line.trim()) { flushParagraph(); flushList(); continue; }
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) { flushParagraph(); flushList(); output.push(`<h${heading[1].length}>${markdownInline(heading[2])}</h${heading[1].length}>`); continue; }
+    const quote = line.match(/^>\s?(.*)$/);
+    if (quote) { flushParagraph(); flushList(); output.push(`<blockquote>${markdownInline(quote[1])}</blockquote>`); continue; }
+    const unordered = line.match(/^\s*[-+*]\s+(.+)$/), ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (unordered || ordered) {
+      flushParagraph();
+      const type = ordered ? "ol" : "ul", item = (ordered || unordered)[1];
+      if (list && list.type !== type) flushList();
+      if (!list) list = { type, items: [] };
+      list.items.push(item);
+      continue;
+    }
+    flushList();
+    paragraph.push(line.trim());
+  }
+  flushParagraph(); flushList(); flushCode();
+  return output.join("");
+};
+const sanitizeScratchCss = source => String(source)
+  .replace(/@import[\s\S]*?(?:;|$)/gi, "/* import removed */")
+  .replace(/url\s*\([^)]*\)/gi, "none")
+  .replace(/expression\s*\([^)]*\)/gi, "none")
+  .replace(/behavior\s*:[^;}]*/gi, "");
+const SCRATCH_TAGS = new Set(["A","ABBR","ARTICLE","ASIDE","B","BLOCKQUOTE","BR","BUTTON","CODE","DIV","EM","FOOTER","H1","H2","H3","H4","H5","H6","HEADER","HR","I","KBD","LABEL","LI","MAIN","MARK","NAV","OL","P","PRE","SECTION","SMALL","SPAN","STRONG","SUB","SUP","TABLE","TBODY","TD","TFOOT","TH","THEAD","TR","U","UL"]);
+const sanitizeScratchHtml = source => {
+  const parsed = new window.DOMParser().parseFromString(trustedHTML(`<div>${String(source)}</div>`), "text/html");
+  const clean = document.createDocumentFragment();
+  const copy = (node, parent) => {
+    if (node.nodeType === window.Node.TEXT_NODE) { parent.append(document.createTextNode(node.textContent)); return; }
+    if (node.nodeType !== window.Node.ELEMENT_NODE) return;
+    if (!SCRATCH_TAGS.has(node.tagName)) { [...node.childNodes].forEach(child => copy(child, parent)); return; }
+    const element = document.createElement(node.tagName.toLowerCase());
+    for (const attribute of node.attributes) {
+      const name = attribute.name.toLowerCase();
+      if (["class", "id", "title", "aria-label"].includes(name) || name.startsWith("data-")) element.setAttribute(name, attribute.value);
+      if (node.tagName === "A" && name === "href") {
+        const safe = safeMarkdownUrl(attribute.value);
+        if (safe) { element.setAttribute("href", safe); element.setAttribute("target", "_blank"); element.setAttribute("rel", "noopener noreferrer"); }
+      }
+    }
+    parent.append(element);
+    [...node.childNodes].forEach(child => copy(child, element));
+  };
+  [...parsed.body.firstElementChild.childNodes].forEach(node => copy(node, clean));
+  return clean;
+};
+
+function developerToolsPage(root) {
+  const tabs = [["regex", "REGEX"], ["hash", "HASH"], ["jwt", "JWT"], ["markdown", "MARKDOWN"], ["scratch", "SCRATCHPAD"]];
+  setHTML(root, pageFrame("DEVELOPER TOOLS", "Inspect and transform code safely without external services.", `<div class="developer-tabs" role="tablist" aria-label="Developer tools">${tabs.map(([id, label], index) => `<button role="tab" aria-selected="${index === 0}" aria-controls="dev-${id}" data-dev-tab="${id}" class="${index === 0 ? "active" : ""}">${label}</button>`).join("")}</div>
+    <div id="developerPanels">
+      <section id="dev-regex" class="developer-panel" role="tabpanel"><div class="grid">
+        <div class="card full"><div class="developer-regex-row"><label>Pattern<input id="regexPattern" placeholder="(\\w+)@(\\w+\\.\\w+)"></label><label>Flags<input id="regexFlags" value="gi" maxlength="7" placeholder="dgimsuvy"></label></div><label>Test text<textarea id="regexInput" maxlength="20000" placeholder="Input is capped at 20,000 characters."></textarea></label><label>Replacement<input id="regexReplacement" placeholder="$1 at $2"></label><button id="runRegex" class="primary">RUN REGEX</button><div class="muted tiny" id="regexLimit">0 / 20,000 CHARACTERS · MANUAL RUN</div></div>
+        <div class="card"><h3>Matches</h3><div class="output developer-output" id="regexMatches">Run a pattern to inspect matches.</div></div><div class="card"><h3>Replacement preview</h3><div class="output developer-output" id="regexReplace">No replacement preview.</div></div>
+      </div></section>
+      <section id="dev-hash" class="developer-panel hidden" role="tabpanel"><div class="grid">
+        <div class="card"><h3>Input</h3><label>Text<textarea id="hashText" placeholder="Text to hash"></textarea></label><div class="developer-or">OR</div><label>Local file<input id="hashFile" type="file"></label><div class="muted tiny" id="hashFileMeta">NO FILE SELECTED</div><button id="runHash" class="primary">GENERATE HASHES</button></div>
+        <div class="card"><h3>Secure hashes</h3><div class="stack" id="hashResults"><div class="output">SHA-256, SHA-384, and SHA-512 results appear here.</div></div></div>
+      </div></section>
+      <section id="dev-jwt" class="developer-panel hidden" role="tabpanel"><div class="grid">
+        <div class="card full"><label>JSON Web Token<textarea id="jwtInput" placeholder="eyJhbGciOi..."></textarea></label><button id="decodeJwt" class="primary">DECODE TOKEN</button><p class="developer-warning">DECODE ONLY — THE SIGNATURE IS NOT VERIFIED.</p></div>
+        <div class="card"><h3>Header</h3><div class="output developer-output" id="jwtHeader">No token decoded.</div></div><div class="card"><h3>Payload</h3><div class="output developer-output" id="jwtPayload">No token decoded.</div></div><div class="card full"><h3>Claims & signature</h3><div class="output" id="jwtMeta">No token decoded.</div></div>
+      </div></section>
+      <section id="dev-markdown" class="developer-panel hidden" role="tabpanel"><div class="developer-preview-grid"><div class="card"><h3>Markdown</h3><textarea id="markdownInput" class="developer-editor" placeholder="# Heading&#10;&#10;**Safe** offline preview"></textarea></div><div class="card"><h3>Preview</h3><div class="developer-render" id="markdownPreview"></div></div></div><p class="muted tiny">Embedded HTML is displayed as text. Unsafe link protocols are removed.</p></section>
+      <section id="dev-scratch" class="developer-panel hidden" role="tabpanel"><div class="grid">
+        <div class="card"><h3>HTML</h3><textarea id="scratchHtml" class="developer-editor" placeholder="<h1>Hello</h1>"></textarea></div><div class="card"><h3>CSS</h3><textarea id="scratchCss" class="developer-editor" placeholder="h1 { color: #39ff88; }"></textarea></div>
+        <div class="card full"><h3>JavaScript draft — not executed</h3><textarea id="scratchJs" placeholder="// Draft and copy JavaScript here. It is never executed."></textarea><div class="row wrap"><button id="copyScratchJs">COPY JAVASCRIPT</button><button id="resetScratch" class="danger">RESET SCRATCHPAD</button></div></div>
+        <div class="card full"><h3>Isolated HTML/CSS preview</h3><div class="scratch-preview" id="scratchPreview"></div><p class="muted tiny">Scripts, event handlers, embedded media, forms, imports, and URL-based CSS are removed.</p></div>
+      </div></section>
+    </div>`));
+
+  let activeTab = "regex";
+  const developerState = { regex: null, hashes: null, jwt: null, markdown: "", scratch: { html: "", css: "", js: "" } };
+  const copy = async value => {
+    try { await navigator.clipboard.writeText(value); toast("Copied"); }
+    catch { toast("Copy failed"); }
+  };
+  const switchTab = id => {
+    activeTab = id;
+    $$("[data-dev-tab]", root).forEach(button => {
+      const selected = button.dataset.devTab === id;
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-selected", String(selected));
+      $(`#dev-${button.dataset.devTab}`, root).classList.toggle("hidden", !selected);
+    });
+  };
+  const tabButtons = $$("[data-dev-tab]", root);
+  tabButtons.forEach((button, index) => {
+    button.onclick = () => switchTab(button.dataset.devTab);
+    button.onkeydown = event => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const next = event.key === "Home" ? 0 : event.key === "End" ? tabButtons.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabButtons.length) % tabButtons.length;
+      tabButtons[next].focus(); tabButtons[next].click();
+    };
+  });
+
+  $("#regexInput").oninput = event => $("#regexLimit").textContent = `${event.target.value.length.toLocaleString()} / 20,000 CHARACTERS · MANUAL RUN`;
+  $("#runRegex").onclick = () => {
+    const pattern = $("#regexPattern").value, flags = $("#regexFlags").value.trim(), input = $("#regexInput").value, replacement = $("#regexReplacement").value;
+    try {
+      if (input.length > 20000) throw new Error("Test text exceeds 20,000 characters");
+      if (!/^[dgimsuvy]*$/.test(flags) || new Set(flags).size !== flags.length || (flags.includes("u") && flags.includes("v"))) throw new Error("Flags must be unique compatible JavaScript flags");
+      const expression = new RegExp(pattern, flags);
+      const scanFlags = flags.includes("g") || flags.includes("y") ? flags : `${flags}g`;
+      const scanner = new RegExp(pattern, scanFlags);
+      const matches = [];
+      let match;
+      while ((match = scanner.exec(input)) && matches.length < 500) {
+        matches.push({ value: match[0], index: match.index, groups: match.slice(1), named: match.groups || null });
+        if (match[0] === "") scanner.lastIndex++;
+      }
+      developerState.regex = { pattern, flags, count: matches.length, truncated: matches.length === 500 };
+      setHTML($("#regexMatches"), matches.length ? matches.map((entry, index) => `<div class="developer-match"><b>#${index + 1} @ ${entry.index}</b><code>${escapeHtml(entry.value || "(empty match)")}</code>${entry.groups.length ? `<small>GROUPS: ${escapeHtml(entry.groups.map((group, groupIndex) => `${groupIndex + 1}=${group ?? "undefined"}`).join(" · "))}</small>` : ""}${entry.named ? `<small>NAMED: ${escapeHtml(JSON.stringify(entry.named))}</small>` : ""}</div>`).join("") + (matches.length === 500 ? `<p class="developer-warning">RESULTS CAPPED AT 500 MATCHES.</p>` : "") : "NO MATCHES");
+      $("#regexReplace").textContent = replacement ? input.replace(expression, replacement) : "Enter a replacement expression to preview it.";
+    } catch (error) {
+      developerState.regex = { error: error.message };
+      $("#regexMatches").textContent = `ERROR: ${error.message}`;
+      $("#regexReplace").textContent = "Replacement unavailable.";
+    }
+  };
+
+  $("#hashFile").onchange = () => {
+    const file = $("#hashFile").files[0];
+    $("#hashFileMeta").textContent = file ? `${file.name} · ${file.size.toLocaleString()} BYTES · ${file.type || "UNKNOWN TYPE"}` : "NO FILE SELECTED";
+  };
+  $("#runHash").onclick = async () => {
+    const button = $("#runHash"), file = $("#hashFile").files[0];
+    button.disabled = true; button.textContent = "HASHING...";
+    try {
+      const bytes = file ? new Uint8Array(await file.arrayBuffer()) : new TextEncoder().encode($("#hashText").value);
+      const algorithms = ["SHA-256", "SHA-384", "SHA-512"];
+      const values = await Promise.all(algorithms.map(algorithm => hashBytes(bytes, algorithm)));
+      developerState.hashes = Object.fromEntries(algorithms.map((algorithm, index) => [algorithm, values[index]]));
+      setHTML($("#hashResults"), algorithms.map((algorithm, index) => `<div><div class="developer-result-head"><b>${algorithm}</b><button data-copy-hash="${index}">COPY</button></div><div class="output developer-hash">${values[index]}</div></div>`).join(""));
+      $$("[data-copy-hash]", root).forEach(copyButton => copyButton.onclick = () => copy(values[Number(copyButton.dataset.copyHash)]));
+    } catch (error) {
+      developerState.hashes = { error: error.message };
+      $("#hashResults").textContent = `ERROR: ${error.message}`;
+    } finally {
+      button.disabled = false; button.textContent = "GENERATE HASHES";
+    }
+  };
+
+  $("#decodeJwt").onclick = () => {
+    try {
+      const parts = $("#jwtInput").value.trim().split(".");
+      if (parts.length !== 3 || !parts[0] || !parts[1]) throw new Error("A JWT must contain three dot-separated parts");
+      const header = JSON.parse(decodeBase64Url(parts[0])), payload = JSON.parse(decodeBase64Url(parts[1]));
+      const timestampClaims = ["iat", "nbf", "exp"].filter(name => Number.isFinite(payload[name])).map(name => `${name.toUpperCase()}: ${new Date(payload[name] * 1000).toLocaleString()}`);
+      developerState.jwt = { header, payload, signaturePresent: !!parts[2] };
+      $("#jwtHeader").textContent = JSON.stringify(header, null, 2);
+      $("#jwtPayload").textContent = JSON.stringify(payload, null, 2);
+      $("#jwtMeta").textContent = `${timestampClaims.join("\n") || "NO STANDARD TIMESTAMP CLAIMS"}\nSIGNATURE: ${parts[2] ? `${parts[2].length} CHARACTERS — NOT VERIFIED` : "EMPTY — UNSIGNED TOKEN"}\nSECURITY: DECODED DATA IS UNTRUSTED`;
+    } catch (error) {
+      developerState.jwt = { error: error.message };
+      $("#jwtHeader").textContent = `ERROR: ${error.message}`;
+      $("#jwtPayload").textContent = "Payload unavailable.";
+      $("#jwtMeta").textContent = "Token was not decoded.";
+    }
+  };
+
+  const updateMarkdown = () => {
+    const source = $("#markdownInput").value;
+    developerState.markdown = source;
+    setHTML($("#markdownPreview"), renderMarkdown(source) || `<p class="muted">Preview appears here.</p>`);
+  };
+  $("#markdownInput").oninput = updateMarkdown; updateMarkdown();
+
+  const previewRoot = $("#scratchPreview").attachShadow({ mode: "open" });
+  const updateScratch = () => {
+    const html = $("#scratchHtml").value, css = sanitizeScratchCss($("#scratchCss").value), js = $("#scratchJs").value;
+    developerState.scratch = { html, css, js };
+    previewRoot.replaceChildren();
+    const base = document.createElement("style");
+    base.textContent = `:host{display:block;min-height:180px;background:#fff;color:#111;font:16px/1.5 system-ui,sans-serif;padding:16px;overflow:auto}*{box-sizing:border-box}a{color:#075fad}`;
+    const custom = document.createElement("style"); custom.textContent = css;
+    previewRoot.append(base, custom, sanitizeScratchHtml(html));
+  };
+  ["scratchHtml", "scratchCss", "scratchJs"].forEach(id => $(`#${id}`).oninput = updateScratch);
+  $("#copyScratchJs").onclick = () => copy($("#scratchJs").value);
+  $("#resetScratch").onclick = () => {
+    ["scratchHtml", "scratchCss", "scratchJs"].forEach(id => $(`#${id}`).value = "");
+    updateScratch();
+  };
+  updateScratch();
+  window.render_developer_tools_to_text = () => JSON.stringify({ activeTab, ...developerState });
+  state.cleanup.push(() => { delete window.render_developer_tools_to_text; });
+}
+
 function randomPage(root) {
   setHTML(root, pageFrame("RANDOM LAB", "Generate passwords, identifiers, and fair choices.", `<div class="grid">
     <div class="card"><h3>Password generator</h3><div class="row"><input type="number" id="passLength" min="4" max="128" value="20"><button id="makePass">GENERATE</button></div><label class="item"><input type="checkbox" id="symbols" checked style="width:auto"> Include symbols</label><div class="output" id="passOut"></div></div>
@@ -1421,6 +1657,7 @@ function helpPage(root) {
     <div class="card full"><h3>Calendar tools</h3><p class="muted">Browse a Sunday-first monthly calendar, compare dates, add or subtract whole days, and calculate age using local calendar dates.</p></div>
     <div class="card full"><h3>World Clock</h3><p class="muted">Save live IANA time zones and convert a chosen local date and time with daylight-saving gap and overlap detection.</p></div>
     <div class="card full"><h3>Color Tools</h3><p class="muted">Convert HEX, RGB, and HSL; generate palettes; check WCAG contrast; and preview approximate color-vision simulations.</p></div>
+    <div class="card full"><h3>Developer Tools</h3><p class="muted">Test regular expressions, generate secure hashes, inspect JWT data, preview safe Markdown, and experiment with sanitized HTML and CSS.</p></div>
     <div class="card full"><h3>Browser limitations</h3><p class="muted">Chrome blocks bookmarklets on protected pages including <code>chrome://</code>, the New Tab page, extension pages, and the Chrome Web Store. On ordinary sites, the dashboard opens in a separate resizable popup window.</p></div>
     <div class="card full"><h3>Privacy</h3><p class="muted">Only the optional USD/INR updater contacts the fixed Frankfurter exchange-rate endpoint. All other tools load no external assets and use no analytics or accounts. Notes, tasks, settings, history, rates, and scores stay in local storage belonging to the page where the bookmarklet launched.</p></div></div>`));
 }
