@@ -1,6 +1,15 @@
 # Bookmarklet of Destiny
 
-A self-contained Chrome bookmarklet that opens a centered popup dashboard with Matrix rain, productivity tools, page controls, and five games. The popup stays compact so the current browser tab remains visible behind it.
+A self-contained Chrome bookmarklet that opens a centered popup dashboard with Matrix rain, productivity tools, calendar and date calculators, page controls, and five games. The popup stays compact so the current browser tab remains visible behind it.
+
+## Included Tools
+
+- Scientific calculator, notes, todos, timers, alarms, and Pomodoro
+- Sunday-first monthly calendar
+- Days-between, add/subtract days, and age calculators
+- Unit and USD/INR conversion
+- Text, random, QR, drawing, and page-control tools
+- Snake, 2048, Minesweeper, Tic-Tac-Toe, and Pong
 
 ## Install
 

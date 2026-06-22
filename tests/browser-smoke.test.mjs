@@ -192,6 +192,71 @@ test("currency rates refresh, throttle, persist, and survive failures", async ()
   });
 });
 
+test("calendar navigation and local date calculations handle boundaries", async () => {
+  await withBrowser(async ({ page }) => {
+    await page.addInitScript(() => { window.__BOD_TEST_TODAY__ = "2024-03-01"; });
+    await page.goto(`${base}/preview.html?page=calendar`);
+    const calendarState = () => page.evaluate(() => JSON.parse(window.render_calendar_to_text()));
+    assert.match(await page.locator("#calendarTitle").textContent(), /MARCH 2024/);
+    assert.equal(await page.locator('.calendar-day[aria-current="date"]').textContent(), "1");
+    assert.equal((await calendarState()).firstWeekday, 5);
+    assert.equal((await calendarState()).days, 31);
+
+    await page.locator("#calendarPrev").click();
+    assert.match(await page.locator("#calendarTitle").textContent(), /FEBRUARY 2024/);
+    assert.equal((await calendarState()).days, 29);
+    assert.equal((await calendarState()).firstWeekday, 4);
+    await page.locator("#calendarPrev").click();
+    assert.match(await page.locator("#calendarTitle").textContent(), /JANUARY 2024/);
+    await page.locator("#calendarPrev").click();
+    assert.match(await page.locator("#calendarTitle").textContent(), /DECEMBER 2023/);
+    await page.locator("#calendarToday").click();
+    assert.match(await page.locator("#calendarTitle").textContent(), /MARCH 2024/);
+
+    await page.locator("#daysStart").fill("2024-02-28");
+    await page.locator("#daysEnd").fill("2024-03-01");
+    await page.locator("#daysCalculate").click();
+    assert.match(await page.locator("#daysResult").textContent(), /SIGNED: 2 DAYS.*ABSOLUTE: 2 DAYS/);
+    await page.locator("#daysStart").fill("2024-03-01");
+    await page.locator("#daysEnd").fill("2024-02-28");
+    await page.locator("#daysCalculate").click();
+    assert.match(await page.locator("#daysResult").textContent(), /SIGNED: -2 DAYS.*ABSOLUTE: 2 DAYS/);
+    await page.locator("#daysEnd").fill("2024-03-01");
+    await page.locator("#daysCalculate").click();
+    assert.match(await page.locator("#daysResult").textContent(), /SIGNED: 0 DAYS.*ABSOLUTE: 0 DAYS/);
+
+    await page.locator("#addDate").fill("2024-02-28");
+    await page.locator("#addDays").fill("1");
+    await page.locator("#addCalculate").click();
+    assert.match(await page.locator("#addResult").textContent(), /2024-02-29/);
+    await page.locator("#addDate").fill("2024-01-01");
+    await page.locator("#addDays").fill("-1");
+    await page.locator("#addCalculate").click();
+    assert.match(await page.locator("#addResult").textContent(), /2023-12-31/);
+    await page.locator("#addDays").fill("1.5");
+    await page.locator("#addCalculate").click();
+    assert.match(await page.locator("#addResult").textContent(), /whole number/i);
+
+    await page.locator("#birthDate").fill("2000-03-01");
+    await page.locator("#ageOnDate").fill("2024-03-01");
+    await page.locator("#ageCalculate").click();
+    assert.match(await page.locator("#ageResult").textContent(), /24 YEARS · 0 MONTHS · 0 DAYS · NEXT BIRTHDAY IN 0 DAYS/);
+    await page.locator("#birthDate").fill("2000-03-02");
+    await page.locator("#ageCalculate").click();
+    assert.match(await page.locator("#ageResult").textContent(), /23 YEARS · 11 MONTHS · 28 DAYS · NEXT BIRTHDAY IN 1 DAY/);
+    await page.locator("#birthDate").fill("2000-02-29");
+    await page.locator("#ageOnDate").fill("2023-02-28");
+    await page.locator("#ageCalculate").click();
+    assert.match(await page.locator("#ageResult").textContent(), /23 YEARS · 0 MONTHS · 0 DAYS · NEXT BIRTHDAY IN 0 DAYS/);
+    await page.locator("#birthDate").fill("2025-01-01");
+    await page.locator("#ageCalculate").click();
+    assert.match(await page.locator("#ageResult").textContent(), /cannot be after/i);
+    await page.locator("#daysStart").fill("");
+    await page.locator("#daysCalculate").click();
+    assert.match(await page.locator("#daysResult").textContent(), /valid dates/i);
+  });
+});
+
 test("bookmarklet opens a reusable self-contained popup on strict CSP pages", async () => {
   await withBrowser(async ({ context, page }) => {
     const raw = await readFile("dist/bookmarklet.txt", "utf8");
@@ -212,7 +277,7 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     assert.equal(context.pages().length, 2);
     assert.equal(await panel.locator("html").getAttribute("data-ready"), "1");
     assert.equal(panel.url(), "about:blank");
-    for (const module of ["calculator", "organizer", "time", "convert", "text", "random", "qr", "draw", "page", "games", "settings", "help", "home"]) {
+    for (const module of ["calculator", "organizer", "time", "calendar", "convert", "text", "random", "qr", "draw", "page", "games", "settings", "help", "home"]) {
       await panel.locator(`[data-page="${module}"]`).click();
       await panel.locator(".page h2").waitFor();
       assert.ok((await panel.locator(".page h2").textContent()).trim().length > 0);

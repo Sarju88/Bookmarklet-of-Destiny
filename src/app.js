@@ -25,6 +25,7 @@ const PAGES = [
   ["calculator", "∑", "Calculator"],
   ["organizer", "✓", "Notes & Todos"],
   ["time", "◷", "Time Systems"],
+  ["calendar", "▣", "Calendar"],
   ["convert", "⇄", "Converters"],
   ["text", "¶", "Text Lab"],
   ["random", "⚄", "Random Lab"],
@@ -531,7 +532,7 @@ function navigate(page) {
 
 function renderPage() {
   const content = $("#content");
-  const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, convert: convertPage, text: textPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
+  const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, calendar: calendarPage, convert: convertPage, text: textPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
   setHTML(content, "");
   renderers[state.page](content);
   state.cleanup.push(enhanceSelects(content));
@@ -541,8 +542,8 @@ function renderPage() {
 function homePage(root) {
   const todoOpen = Store.data.todos.filter(t => !t.done).length;
   setHTML(root, pageFrame("COMMAND CENTER", "Everyday tools and arcade systems ready.", `<div class="stat-grid">
-    <div class="stat"><b>13</b><span>MODULES</span></div><div class="stat"><b>5</b><span>GAMES</span></div><div class="stat"><b>${todoOpen}</b><span>OPEN TASKS</span></div><div class="stat"><b>100%</b><span>OFFLINE</span></div>
-    </div><div class="grid" style="margin-top:14px"><div class="card full"><h3>Quick launch</h3><div class="row wrap">${PAGES.slice(1, 12).map(([id, icon, name]) => `<button data-quick="${id}">${icon} ${name}</button>`).join("")}</div></div>
+    <div class="stat"><b>${PAGES.length}</b><span>MODULES</span></div><div class="stat"><b>5</b><span>GAMES</span></div><div class="stat"><b>${todoOpen}</b><span>OPEN TASKS</span></div><div class="stat"><b>100%</b><span>OFFLINE</span></div>
+    </div><div class="grid" style="margin-top:14px"><div class="card full"><h3>Quick launch</h3><div class="row wrap">${PAGES.filter(([id]) => !["home","settings","help"].includes(id)).map(([id, icon, name]) => `<button data-quick="${id}">${icon} ${name}</button>`).join("")}</div></div>
     <div class="card"><h3>System message</h3><div class="output">Wake up, operator. The toolbox is loaded. Press <kbd>Ctrl</kbd> + <kbd>K</kbd> to search every command.</div></div>
     <div class="card"><h3>Local high scores</h3><div class="list">${Object.entries(Store.data.scores).map(([game, score]) => `<div class="item"><span class="grow">${game.toUpperCase()}</span><b>${score}</b></div>`).join("")}</div></div></div>`));
   $$("[data-quick]", root).forEach(button => button.onclick = () => navigate(button.dataset.quick));
@@ -693,6 +694,102 @@ function timePage(root) {
     paint();
   }, 100);
   state.cleanup.push(() => clearInterval(interval)); paint();
+}
+
+const DAY_MS = 86400000;
+const localDateParts = date => ({ year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate() });
+const dateSerial = ({ year, month, day }) => Date.UTC(year, month - 1, day) / DAY_MS;
+const daysInMonth = (year, month) => new Date(year, month, 0).getDate();
+const validDateParts = ({ year, month, day }) => Number.isInteger(year) && year >= 1 && year <= 9999 && Number.isInteger(month) && month >= 1 && month <= 12 && Number.isInteger(day) && day >= 1 && day <= daysInMonth(year, month);
+const parseLocalDate = value => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
+  if (!match) return null;
+  const parts = { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) };
+  return validDateParts(parts) ? parts : null;
+};
+const partsFromSerial = serial => {
+  const date = new Date(serial * DAY_MS);
+  return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+};
+const formatDateParts = parts => `${String(parts.year).padStart(4, "0")}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+const displayDateParts = parts => new Date(parts.year, parts.month - 1, parts.day).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+const compareDateParts = (a, b) => Math.sign(dateSerial(a) - dateSerial(b));
+const addMonthsClamped = (parts, amount) => {
+  const monthIndex = parts.year * 12 + parts.month - 1 + amount;
+  const year = Math.floor(monthIndex / 12), month = monthIndex - year * 12 + 1;
+  return { year, month, day: Math.min(parts.day, daysInMonth(year, month)) };
+};
+const addYearsClamped = (parts, years) => ({ year: parts.year + years, month: parts.month, day: Math.min(parts.day, daysInMonth(parts.year + years, parts.month)) });
+const calendarToday = () => {
+  const override = parseLocalDate(window.__BOD_TEST_TODAY__);
+  return override || localDateParts(new Date());
+};
+
+function calendarPage(root) {
+  const today = calendarToday();
+  let view = { year: today.year, month: today.month };
+  setHTML(root, pageFrame("CALENDAR & DATE TOOLS", "Browse months and calculate with local calendar dates.", `<div class="grid">
+    <div class="card full calendar-card">
+      <div class="calendar-toolbar"><button id="calendarPrev" aria-label="Previous month">← PREV</button><h3 id="calendarTitle"></h3><div class="row"><button id="calendarToday">TODAY</button><button id="calendarNext" aria-label="Next month">NEXT →</button></div></div>
+      <div class="calendar-weekdays" aria-hidden="true">${["SUN","MON","TUE","WED","THU","FRI","SAT"].map(day => `<span>${day}</span>`).join("")}</div>
+      <div class="calendar-grid" id="calendarGrid" role="grid" aria-label="Monthly calendar"></div>
+    </div>
+    <div class="card"><h3>Days between</h3><div class="stack"><label>Start date<input type="date" id="daysStart"></label><label>End date<input type="date" id="daysEnd"></label><button id="daysCalculate">CALCULATE</button><div class="output" id="daysResult">Choose two dates.</div></div></div>
+    <div class="card"><h3>Add or subtract days</h3><div class="stack"><label>Starting date<input type="date" id="addDate"></label><label>Days<input type="number" id="addDays" step="1" value="30"></label><button id="addCalculate">CALCULATE</button><div class="output" id="addResult">Use a negative number to subtract.</div></div></div>
+    <div class="card full"><h3>Age calculator</h3><div class="split"><label>Birth date<input type="date" id="birthDate"></label><label>Age on date<input type="date" id="ageOnDate" value="${formatDateParts(today)}"></label></div><button id="ageCalculate" style="margin-top:10px">CALCULATE AGE</button><div class="output" id="ageResult" style="margin-top:10px">Choose a birth date.</div></div>
+  </div>`));
+  const renderCalendar = () => {
+    const first = new Date(view.year, view.month - 1, 1).getDay();
+    const count = daysInMonth(view.year, view.month);
+    $("#calendarTitle").textContent = new Date(view.year, view.month - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" }).toUpperCase();
+    const cells = Array.from({ length: 42 }, (_, index) => {
+      const day = index - first + 1;
+      if (day < 1 || day > count) return `<span class="calendar-day empty" role="gridcell"></span>`;
+      const isToday = view.year === today.year && view.month === today.month && day === today.day;
+      return `<span class="calendar-day${isToday ? " today" : ""}" role="gridcell" aria-label="${escapeHtml(displayDateParts({ year: view.year, month: view.month, day }))}"${isToday ? ' aria-current="date"' : ""}>${day}</span>`;
+    });
+    setHTML($("#calendarGrid"), cells.join(""));
+  };
+  const changeMonth = amount => {
+    const next = addMonthsClamped({ year: view.year, month: view.month, day: 1 }, amount);
+    view = { year: next.year, month: next.month };
+    renderCalendar();
+  };
+  $("#calendarPrev").onclick = () => changeMonth(-1);
+  $("#calendarNext").onclick = () => changeMonth(1);
+  $("#calendarToday").onclick = () => { view = { year: today.year, month: today.month }; renderCalendar(); };
+  $("#daysCalculate").onclick = () => {
+    const start = parseLocalDate($("#daysStart").value), end = parseLocalDate($("#daysEnd").value);
+    if (!start || !end) return $("#daysResult").textContent = "ERR: Choose two valid dates.";
+    const signed = dateSerial(end) - dateSerial(start);
+    $("#daysResult").textContent = `SIGNED: ${signed} DAY${Math.abs(signed) === 1 ? "" : "S"} · ABSOLUTE: ${Math.abs(signed)} DAY${Math.abs(signed) === 1 ? "" : "S"}`;
+  };
+  $("#addCalculate").onclick = () => {
+    const start = parseLocalDate($("#addDate").value), amount = Number($("#addDays").value);
+    if (!start) return $("#addResult").textContent = "ERR: Choose a valid starting date.";
+    if (!Number.isInteger(amount)) return $("#addResult").textContent = "ERR: Days must be a whole number.";
+    const result = partsFromSerial(dateSerial(start) + amount);
+    $("#addResult").textContent = `${displayDateParts(result)} · ${formatDateParts(result)}`;
+  };
+  $("#ageCalculate").onclick = () => {
+    const birth = parseLocalDate($("#birthDate").value), onDate = parseLocalDate($("#ageOnDate").value);
+    if (!birth || !onDate) return $("#ageResult").textContent = "ERR: Choose valid birth and comparison dates.";
+    if (compareDateParts(birth, onDate) > 0) return $("#ageResult").textContent = "ERR: Birth date cannot be after the comparison date.";
+    let years = onDate.year - birth.year;
+    if (compareDateParts(onDate, addYearsClamped(birth, years)) < 0) years--;
+    const lastBirthday = addYearsClamped(birth, years);
+    let months = 0;
+    while (compareDateParts(addMonthsClamped(lastBirthday, months + 1), onDate) <= 0) months++;
+    const monthStart = addMonthsClamped(lastBirthday, months);
+    const days = dateSerial(onDate) - dateSerial(monthStart);
+    let nextBirthday = addYearsClamped(birth, onDate.year - birth.year);
+    if (compareDateParts(nextBirthday, onDate) < 0) nextBirthday = addYearsClamped(birth, onDate.year - birth.year + 1);
+    const countdown = dateSerial(nextBirthday) - dateSerial(onDate);
+    $("#ageResult").textContent = `${years} YEARS · ${months} MONTHS · ${days} DAYS · NEXT BIRTHDAY IN ${countdown} DAY${countdown === 1 ? "" : "S"}`;
+  };
+  window.render_calendar_to_text = () => JSON.stringify({ view, today, firstWeekday: new Date(view.year, view.month - 1, 1).getDay(), days: daysInMonth(view.year, view.month) });
+  state.cleanup.push(() => { delete window.render_calendar_to_text; });
+  renderCalendar();
 }
 
 const conversions = {
@@ -1080,6 +1177,7 @@ function resetAll() {
 function helpPage(root) {
   setHTML(root, pageFrame("HELP & SHORTCUTS", "Operational notes for the dashboard.", `<div class="grid"><div class="card"><h3>Global controls</h3><div class="list"><div class="item"><kbd>Ctrl/⌘ K</kbd><span>Command palette</span></div><div class="item"><kbd>Esc</kbd><span>Close palette / exit fullscreen</span></div><div class="item"><kbd>F</kbd><span>Fullscreen active canvas game</span></div></div></div>
     <div class="card"><h3>Game controls</h3><div class="list"><div class="item"><kbd>WASD / Arrows</kbd><span>Snake, 2048, Pong</span></div><div class="item"><kbd>Space</kbd><span>Pause Snake or Pong</span></div><div class="item"><kbd>Right click</kbd><span>Flag Minesweeper cell</span></div></div></div>
+    <div class="card full"><h3>Calendar tools</h3><p class="muted">Browse a Sunday-first monthly calendar, compare dates, add or subtract whole days, and calculate age using local calendar dates.</p></div>
     <div class="card full"><h3>Browser limitations</h3><p class="muted">Chrome blocks bookmarklets on protected pages including <code>chrome://</code>, the New Tab page, extension pages, and the Chrome Web Store. On ordinary sites, the dashboard opens in a separate resizable popup window.</p></div>
     <div class="card full"><h3>Privacy</h3><p class="muted">Only the optional USD/INR updater contacts the fixed Frankfurter exchange-rate endpoint. All other tools load no external assets and use no analytics or accounts. Notes, tasks, settings, history, rates, and scores stay in local storage belonging to the page where the bookmarklet launched.</p></div></div>`));
 }
