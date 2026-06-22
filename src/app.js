@@ -153,6 +153,177 @@ const toast = (message) => {
   setTimeout(() => node.remove(), 1800);
 };
 
+function enhanceSelects(root) {
+  const selects = $$("select", root).filter(select => !select.dataset.destinySelect);
+  if (!selects.length) return () => {};
+  let openControl = null, typeBuffer = "", typeTimer = null;
+  const controls = [];
+  const closeOpen = focus => {
+    if (!openControl) return;
+    const control = openControl;
+    control.menu.classList.add("hidden");
+    control.trigger.setAttribute("aria-expanded", "false");
+    openControl = null;
+    if (focus) control.trigger.focus();
+  };
+  const position = control => {
+    if (control !== openControl) return;
+    const rect = control.trigger.getBoundingClientRect();
+    const viewportWidth = document.documentElement.clientWidth;
+    const viewportHeight = document.documentElement.clientHeight;
+    const desired = Math.min(280, Math.max(46, control.menu.scrollHeight + 10));
+    const below = viewportHeight - rect.bottom - 8, above = rect.top - 8;
+    const opensUp = below < Math.min(180, desired) && above > below;
+    const height = Math.max(46, Math.min(desired, opensUp ? above : below));
+    const width = Math.min(Math.max(rect.width, 150), viewportWidth - 16);
+    const left = Math.max(8, Math.min(rect.left, viewportWidth - width - 8));
+    control.menu.style.cssText = `left:${left}px;top:${opensUp ? Math.max(8, rect.top - height - 4) : Math.min(viewportHeight - height - 8, rect.bottom + 4)}px;width:${width}px;max-height:${height}px`;
+    control.menu.dataset.position = opensUp ? "above" : "below";
+  };
+  const build = control => {
+    const { select, menu, trigger } = control;
+    const options = [...select.options];
+    setHTML(menu, "");
+    options.forEach((option, index) => {
+      const item = el("button", {
+        type: "button", class: "destiny-select-option", role: "option",
+        id: `${control.id}-option-${index}`,
+        "aria-selected": String(index === select.selectedIndex)
+      }, escapeHtml(option.textContent));
+      item.disabled = option.disabled;
+      item.onmouseenter = () => setActive(control, index);
+      item.onclick = () => choose(control, index);
+      menu.append(item);
+    });
+    trigger.textContent = select.selectedOptions[0]?.textContent || "SELECT";
+    trigger.disabled = select.disabled;
+    control.activeIndex = Math.max(0, select.selectedIndex);
+    if (control === openControl) position(control);
+  };
+  const sync = control => {
+    control.trigger.textContent = control.select.selectedOptions[0]?.textContent || "SELECT";
+    control.trigger.disabled = control.select.disabled;
+    [...control.menu.children].forEach((item, index) => item.setAttribute("aria-selected", String(index === control.select.selectedIndex)));
+    control.activeIndex = Math.max(0, control.select.selectedIndex);
+  };
+  const setActive = (control, index) => {
+    const items = [...control.menu.children];
+    if (!items[index] || items[index].disabled) return;
+    control.activeIndex = index;
+    items.forEach((item, itemIndex) => item.classList.toggle("active", itemIndex === index));
+    control.trigger.setAttribute("aria-activedescendant", items[index].id);
+    items[index].scrollIntoView({ block: "nearest" });
+  };
+  const move = (control, direction) => {
+    const items = [...control.menu.children];
+    let index = control.activeIndex;
+    for (let count = 0; count < items.length; count++) {
+      index = (index + direction + items.length) % items.length;
+      if (!items[index].disabled) return setActive(control, index);
+    }
+  };
+  const choose = (control, index) => {
+    const option = control.select.options[index];
+    if (!option || option.disabled) return;
+    control.select.selectedIndex = index;
+    control.select.dispatchEvent(new window.Event("input", { bubbles: true }));
+    control.select.dispatchEvent(new window.Event("change", { bubbles: true }));
+    sync(control);
+    closeOpen(true);
+  };
+  const open = control => {
+    if (control.select.disabled) return;
+    if (openControl && openControl !== control) closeOpen(false);
+    openControl = control;
+    build(control);
+    control.menu.classList.remove("hidden");
+    control.trigger.setAttribute("aria-expanded", "true");
+    position(control);
+    setActive(control, Math.max(0, control.select.selectedIndex));
+  };
+  selects.forEach((select, number) => {
+    select.dataset.destinySelect = "true";
+    const id = `${select.id || `destiny-select-${number}`}-listbox`;
+    const wrapper = el("div", { class: `destiny-select ${select.classList.contains("select-compact") ? "select-compact" : "select-full"}` });
+    const trigger = el("button", {
+      type: "button", class: "destiny-select-trigger", role: "combobox",
+      "aria-haspopup": "listbox", "aria-expanded": "false", "aria-controls": id,
+      "aria-label": select.getAttribute("aria-label") || select.labels?.[0]?.textContent || select.id || "Select"
+    });
+    const menu = el("div", { class: "destiny-select-menu hidden", role: "listbox", id });
+    select.classList.add("native-select-hidden");
+    select.insertAdjacentElement("afterend", wrapper);
+    wrapper.append(trigger);
+    appMount.append(menu);
+    const control = { select, wrapper, trigger, menu, id, activeIndex: 0, observer: null };
+    controls.push(control);
+    build(control);
+    const labels = [...(select.labels || [])];
+    const labelClick = event => { event.preventDefault(); trigger.focus(); open(control); };
+    labels.forEach(label => label.addEventListener("click", labelClick));
+    const syncListener = () => sync(control);
+    select.addEventListener("input", syncListener);
+    select.addEventListener("change", syncListener);
+    trigger.onclick = () => openControl === control ? closeOpen(false) : open(control);
+    trigger.onkeydown = event => {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        if (openControl !== control) open(control);
+        else move(control, event.key === "ArrowDown" ? 1 : -1);
+      } else if (event.key === "Home" || event.key === "End") {
+        event.preventDefault(); if (openControl !== control) open(control);
+        const items = [...menu.children], direction = event.key === "Home" ? 1 : -1;
+        let index = event.key === "Home" ? 0 : items.length - 1;
+        while (items[index]?.disabled) index += direction;
+        setActive(control, index);
+      } else if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        if (openControl === control) choose(control, control.activeIndex); else open(control);
+      } else if (event.key === "Escape") {
+        if (openControl === control) { event.preventDefault(); closeOpen(true); }
+      } else if (event.key === "Tab") {
+        closeOpen(false);
+      } else if (event.key.length === 1 && /\S/.test(event.key)) {
+        typeBuffer += event.key.toLowerCase();
+        clearTimeout(typeTimer); typeTimer = setTimeout(() => typeBuffer = "", 650);
+        const start = openControl === control ? control.activeIndex + 1 : select.selectedIndex + 1;
+        const options = [...select.options];
+        const match = [...options.slice(start), ...options.slice(0, start)].findIndex(option => !option.disabled && option.textContent.trim().toLowerCase().startsWith(typeBuffer));
+        if (match >= 0) {
+          const index = (start + match) % options.length;
+          if (openControl !== control) open(control);
+          setActive(control, index);
+        }
+      }
+    };
+    control.observer = new window.MutationObserver(() => build(control));
+    control.observer.observe(select, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled", "selected", "label"] });
+    control.cleanup = () => {
+      select.removeEventListener("input", syncListener);
+      select.removeEventListener("change", syncListener);
+      labels.forEach(label => label.removeEventListener("click", labelClick));
+      control.observer.disconnect();
+      menu.remove(); wrapper.remove();
+      select.classList.remove("native-select-hidden");
+      delete select.dataset.destinySelect;
+    };
+  });
+  const outside = event => {
+    if (openControl && !openControl.wrapper.contains(event.target) && !openControl.menu.contains(event.target)) closeOpen(false);
+  };
+  const reposition = () => openControl && position(openControl);
+  document.addEventListener("pointerdown", outside);
+  addEventListener("resize", reposition);
+  $(".content")?.addEventListener("scroll", reposition, { passive: true });
+  return () => {
+    closeOpen(false); clearTimeout(typeTimer);
+    document.removeEventListener("pointerdown", outside);
+    removeEventListener("resize", reposition);
+    $(".content")?.removeEventListener("scroll", reposition);
+    controls.forEach(control => control.cleanup());
+  };
+}
+
 function currencyRateStatus() {
   const settings = Store.data.settings;
   if (currencySyncState === "checking") return "CHECKING ONLINE RATE...";
@@ -363,6 +534,7 @@ function renderPage() {
   const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, convert: convertPage, text: textPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
   setHTML(content, "");
   renderers[state.page](content);
+  state.cleanup.push(enhanceSelects(content));
   content.scrollTop = 0;
 }
 
@@ -711,7 +883,12 @@ function gamesPage(root) {
   $$("[data-game]").forEach(button => button.onclick = () => { clearGame(); state.game = button.dataset.game; $$("[data-game]").forEach(b => b.classList.toggle("active", b === button)); mountGame(); });
   let gameCleanup = () => {};
   const clearGame = () => { gameCleanup(); gameCleanup = () => {}; };
-  const mountGame = () => { gameCleanup = ({ snake: snakeGame, "2048": game2048, mines: minesGame, ttt: tttGame, pong: pongGame })[state.game]($("#gameHost")); };
+  const mountGame = () => {
+    const host = $("#gameHost");
+    const cleanupGame = ({ snake: snakeGame, "2048": game2048, mines: minesGame, ttt: tttGame, pong: pongGame })[state.game](host);
+    const cleanupSelects = enhanceSelects(host);
+    gameCleanup = () => { cleanupSelects(); cleanupGame(); };
+  };
   state.cleanup.push(clearGame); mountGame();
 }
 

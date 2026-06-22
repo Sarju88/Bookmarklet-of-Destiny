@@ -68,3 +68,4 @@ Original prompt: Build the complete “Bookmarklet of Destiny” plan: a self-co
 - Added one-player/two-player Pong selection: W/S controls the left paddle, arrows control the right paddle in two-player mode, both remain smoothly frame-driven, and two-player matches do not affect saved high scores.
 - Added one-player/two-player Tic-Tac-Toe selection with alternating X/O turns, player-specific win messages, CPU timeout cleanup, and no high-score changes for two-player matches.
 - Styled every native dropdown with shared Matrix-terminal colors, custom arrows, hover/focus/disabled states, responsive sizing, and visible labels for converter, QR, Minesweeper, Pong, and Tic-Tac-Toe controls.
+- Replaced the operating-system-rendered expanded select menus with accessible custom Matrix listboxes backed by hidden native selects, including auto-positioning, full keyboard navigation, type search, dynamic option syncing, and lifecycle cleanup.
