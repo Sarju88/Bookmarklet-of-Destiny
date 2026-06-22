@@ -66,3 +66,4 @@ Original prompt: Build the complete “Bookmarklet of Destiny” plan: a self-co
 
 - Hardened popup creation for Chrome configurations that route `_blank` into tabs by using a unique non-reusable window name and immediately applying popup dimensions and position.
 - Added one-player/two-player Pong selection: W/S controls the left paddle, arrows control the right paddle in two-player mode, both remain smoothly frame-driven, and two-player matches do not affect saved high scores.
+- Added one-player/two-player Tic-Tac-Toe selection with alternating X/O turns, player-specific win messages, CPU timeout cleanup, and no high-score changes for two-player matches.

@@ -787,14 +787,48 @@ function minesGame(host) {
 }
 
 function tttGame(host) {
-  setHTML(host, `<div class="game-status"><span>TIC-TAC-TOE</span><span>YOU: X · CPU: O</span></div><div class="game-wrap"><div class="ttt"></div><div class="metric" id="tttStatus"></div></div><div class="row" style="justify-content:center;margin-top:10px"><button class="gameRestart">RESTART</button></div>`);
-  let cells,mode;
+  setHTML(host, `<div class="game-status"><span>TIC-TAC-TOE</span><span id="tttControls">YOU: X · CPU: O</span></div><div class="game-wrap"><div class="ttt"></div><div class="metric" id="tttStatus"></div></div><div class="row" style="justify-content:center;margin-top:10px"><select id="tttPlayers" aria-label="Tic-Tac-Toe player mode"><option value="one">1 PLAYER</option><option value="two">2 PLAYERS</option></select><button class="gameRestart">RESTART</button></div>`);
+  let cells,mode,current,playerMode="one",cpuTimer=null;
   const winner=b=>[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]].find(l=>b[l[0]]&&b[l[0]]===b[l[1]]&&b[l[1]]===b[l[2]]);
-  const finish=()=>{const line=winner(cells);if(line){mode=cells[line[0]]==="X"?"won":"lost";if(mode==="won")score("ttt",Store.data.scores.ttt+1)}else if(cells.every(Boolean))mode="draw"};
-  const cpu=()=>{if(mode!=="playing")return;const free=cells.map((v,i)=>v?null:i).filter(v=>v!==null);let pick=free.find(i=>{const b=[...cells];b[i]="O";return winner(b)})??free.find(i=>{const b=[...cells];b[i]="X";return winner(b)})??([4,0,2,6,8].find(i=>!cells[i]))??free[Math.floor(Math.random()*free.length)];if(pick!==undefined)cells[pick]="O";finish();paint()};
-  const click=i=>{if(mode!=="playing"||cells[i])return;cells[i]="X";finish();paint();if(mode==="playing")setTimeout(cpu,220)};
-  const paint=()=>{const grid=$(".ttt",host);setHTML(grid,"");cells.forEach((v,i)=>{const b=el("button",{},v||"");b.onclick=()=>click(i);grid.append(b)});$("#tttStatus").textContent=mode==="playing"?"YOUR MOVE":mode.toUpperCase()};
-  const reset=()=>{cells=Array(9).fill("");mode="playing";paint()};$(".gameRestart",host).onclick=reset;window.render_game_to_text=()=>JSON.stringify({game:"tic-tac-toe",mode,board:cells,player:"X"});window.advanceTime=()=>{};reset();return()=>{};
+  const clearCpu=()=>{if(cpuTimer!==null){clearTimeout(cpuTimer);cpuTimer=null}};
+  const finish=()=>{
+    const line=winner(cells);
+    if(line){
+      const mark=cells[line[0]];
+      mode=playerMode==="two"?(mark==="X"?"x-won":"o-won"):(mark==="X"?"won":"lost");
+      if(playerMode==="one"&&mode==="won")score("ttt",Store.data.scores.ttt+1);
+    }else if(cells.every(Boolean))mode="draw";
+  };
+  const cpu=()=>{
+    cpuTimer=null;
+    if(mode!=="playing"||playerMode!=="one")return;
+    const free=cells.map((v,i)=>v?null:i).filter(v=>v!==null);
+    const pick=free.find(i=>{const b=[...cells];b[i]="O";return winner(b)})??free.find(i=>{const b=[...cells];b[i]="X";return winner(b)})??([4,0,2,6,8].find(i=>!cells[i]))??free[Math.floor(Math.random()*free.length)];
+    if(pick!==undefined)cells[pick]="O";
+    finish();paint();
+  };
+  const click=i=>{
+    if(mode!=="playing"||cells[i]||(playerMode==="one"&&current==="O"))return;
+    cells[i]=current;
+    finish();
+    if(mode==="playing")current=current==="X"?"O":"X";
+    paint();
+    if(playerMode==="one"&&mode==="playing")cpuTimer=setTimeout(cpu,220);
+  };
+  const paint=()=>{
+    const grid=$(".ttt",host);setHTML(grid,"");
+    cells.forEach((v,i)=>{const b=el("button",{},v||"");b.onclick=()=>click(i);grid.append(b)});
+    $("#tttControls").textContent=playerMode==="two"?"PLAYER 1: X · PLAYER 2: O":"YOU: X · CPU: O";
+    const labels={won:"YOU WIN",lost:"CPU WINS",draw:"DRAW","x-won":"PLAYER 1 WINS","o-won":"PLAYER 2 WINS"};
+    $("#tttStatus").textContent=mode==="playing"?(playerMode==="two"?`PLAYER ${current==="X"?1:2} (${current}) TURN`:current==="X"?"YOUR MOVE":"CPU THINKING"):labels[mode];
+  };
+  const reset=()=>{clearCpu();cells=Array(9).fill("");mode="playing";current="X";paint()};
+  $("#tttPlayers").onchange=e=>{playerMode=e.target.value;reset()};
+  $(".gameRestart",host).onclick=reset;
+  window.render_game_to_text=()=>JSON.stringify({game:"tic-tac-toe",mode,playerMode,currentPlayer:current,board:cells});
+  window.advanceTime=()=>{};
+  reset();
+  return()=>clearCpu();
 }
 
 function pongGame(host) {
