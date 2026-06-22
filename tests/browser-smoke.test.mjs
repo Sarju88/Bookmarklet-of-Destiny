@@ -96,6 +96,8 @@ test("install page, dashboard utilities, and local persistence work", async () =
     assert.equal(await page.locator("#qrOutput img").count(), 1);
 
     await page.click('[data-page="convert"]');
+    assert.equal(await page.locator("#convType").evaluate(node => getComputedStyle(node).appearance), "none");
+    assert.match(await page.locator("label[for=convType]").textContent(), /Conversion type/i);
     await page.locator("#convType").selectOption("currency");
     await page.waitForFunction(() => document.querySelector("#currencyRateStatus")?.textContent.includes("ONLINE RATE"));
     await page.locator("#convInput").fill("10");
@@ -210,10 +212,12 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     await panel.keyboard.press("ArrowLeft");
     assert.match(await panel.evaluate(() => window.render_game_to_text()), /"game":"2048"/);
     await panel.locator('[data-game="mines"]').click();
+    assert.match(await panel.locator("label[for=mineDifficulty]").textContent(), /Difficulty/i);
     assert.equal(await panel.locator(".mine-grid button").count(), 81);
     await panel.locator(".mine-grid button").first().click();
     assert.match(await panel.evaluate(() => window.render_game_to_text()), /minesweeper/);
     await panel.locator('[data-game="ttt"]').click();
+    assert.match(await panel.locator("label[for=tttPlayers]").textContent(), /Game mode/i);
     await panel.locator(".ttt button").first().click();
     await page.waitForTimeout(250);
     const tttState = () => panel.evaluate(() => JSON.parse(window.render_game_to_text()));
@@ -239,6 +243,7 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     assert.equal((await tttState()).mode, "o-won");
     assert.equal(await panel.evaluate(() => JSON.parse(localStorage.getItem("bookmarklet-of-destiny:v1")).scores.ttt), tttScore);
     await panel.locator('[data-game="pong"]').click();
+    assert.match(await panel.locator("label[for=pongPlayers]").textContent(), /Game mode/i);
     const pongState = () => panel.evaluate(() => JSON.parse(window.render_game_to_text()));
     const pongStart = await pongState();
     assert.equal(pongStart.playerMode, "one");
@@ -298,6 +303,9 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     assert.equal(await panel.evaluate(() => JSON.parse(localStorage.getItem("bookmarklet-of-destiny:v1")).scores.pong), savedPongScore);
     await panel.locator("#pongPlayers").selectOption("one");
     assert.deepEqual((await pongState()).scores, [0, 0]);
+    await panel.locator('[data-page="qr"]').click();
+    assert.match(await panel.locator("label[for=qrLevel]").textContent(), /Error correction/i);
+    assert.equal(await panel.locator("#qrLevel").evaluate(node => getComputedStyle(node).appearance), "none");
     await panel.locator('[data-page="page"]').click();
     await panel.locator('[data-effect="dark"]').click();
     assert.equal(await page.locator("#__bod_dark_mode").count(), 1);

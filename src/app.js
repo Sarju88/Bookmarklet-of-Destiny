@@ -531,7 +531,7 @@ const conversions = {
 };
 
 function convertPage(root) {
-  setHTML(root, pageFrame("UNIT CONVERTER", "Type into either value box to convert in both directions.", `<div class="grid"><div class="card full"><div class="row wrap"><select id="convType" style="max-width:180px">${Object.keys(conversions).map(k => `<option>${k}</option>`).join("")}<option>temperature</option><option>currency</option></select></div><div class="split" style="margin-top:14px"><div class="stack"><input type="number" id="convInput" value="1" aria-label="First conversion value"><select id="convFrom" aria-label="First unit"></select></div><div class="stack"><input type="number" id="convOutput" aria-label="Second conversion value"><select id="convTo" aria-label="Second unit"></select></div></div><div id="currencyRate" style="margin-top:14px;display:none"><div class="row wrap"><label for="usdInrRate">1 USD equals</label><input type="number" id="usdInrRate" min="0.0001" step="0.01" value="${Store.data.settings.usdInrRate}" style="max-width:180px"><span>INR</span><button id="refreshCurrencyRate">REFRESH RATE</button></div><div id="currencyRateStatus" class="muted tiny" style="margin-top:8px"></div><div class="muted tiny" style="margin-top:5px">Daily informational reference rate from Frankfurter; transaction rates may differ.</div></div></div></div>`));
+  setHTML(root, pageFrame("UNIT CONVERTER", "Type into either value box to convert in both directions.", `<div class="grid"><div class="card full"><div class="select-field"><label class="select-label" for="convType">Conversion type</label><select id="convType" class="select-compact">${Object.keys(conversions).map(k => `<option>${k}</option>`).join("")}<option>temperature</option><option>currency</option></select></div><div class="split" style="margin-top:14px"><div class="stack"><input type="number" id="convInput" value="1" aria-label="First conversion value"><select id="convFrom" class="select-full" aria-label="First unit"></select></div><div class="stack"><input type="number" id="convOutput" aria-label="Second conversion value"><select id="convTo" class="select-full" aria-label="Second unit"></select></div></div><div id="currencyRate" style="margin-top:14px;display:none"><div class="row wrap"><label for="usdInrRate">1 USD equals</label><input type="number" id="usdInrRate" min="0.0001" step="0.01" value="${Store.data.settings.usdInrRate}" style="max-width:180px"><span>INR</span><button id="refreshCurrencyRate">REFRESH RATE</button></div><div id="currencyRateStatus" class="muted tiny" style="margin-top:8px"></div><div class="muted tiny" style="margin-top:5px">Daily informational reference rate from Frankfurter; transaction rates may differ.</div></div></div></div>`));
   const type = $("#convType"), from = $("#convFrom"), to = $("#convTo"), input = $("#convInput"), output = $("#convOutput"), rateInput = $("#usdInrRate"), rateRow = $("#currencyRate");
   let lastEdited = "from";
   const setup = () => {
@@ -642,7 +642,7 @@ function randomPage(root) {
 }
 
 function qrPage(root) {
-  setHTML(root, pageFrame("QR GENERATOR", "Create a QR code entirely offline.", `<div class="grid"><div class="card"><h3>Content</h3><textarea id="qrInput" placeholder="Text or URL">Bookmarklet of Destiny</textarea><div class="row"><select id="qrLevel"><option>L</option><option selected>M</option><option>Q</option><option>H</option></select><button id="makeQr" class="primary">GENERATE</button></div></div><div class="card"><h3>QR output</h3><div class="qr-output" id="qrOutput"></div><button id="saveQr" style="margin-top:8px">DOWNLOAD PNG</button></div></div>`));
+  setHTML(root, pageFrame("QR GENERATOR", "Create a QR code entirely offline.", `<div class="grid"><div class="card"><h3>Content</h3><textarea id="qrInput" placeholder="Text or URL">Bookmarklet of Destiny</textarea><div class="row"><div class="select-field" style="flex:1"><label class="select-label" for="qrLevel">Error correction</label><select id="qrLevel" class="select-full"><option>L</option><option selected>M</option><option>Q</option><option>H</option></select></div><button id="makeQr" class="primary">GENERATE</button></div></div><div class="card"><h3>QR output</h3><div class="qr-output" id="qrOutput"></div><button id="saveQr" style="margin-top:8px">DOWNLOAD PNG</button></div></div>`));
   const make = () => {
     try {
       const qr = qrcode(0, $("#qrLevel").value); qr.addData($("#qrInput").value); qr.make();
@@ -777,7 +777,7 @@ function game2048(host) {
 }
 
 function minesGame(host) {
-  setHTML(host, `<div class="game-status"><span>MINESWEEPER</span><span>LEFT OPEN · RIGHT FLAG</span></div><div class="game-wrap"><div class="mine-grid"></div></div><div class="row" style="justify-content:center;margin-top:10px"><select id="mineDifficulty"><option value="9,9,10">EASY</option><option value="16,12,30">MEDIUM</option><option value="20,14,50">HARD</option></select><button class="gameRestart">RESTART</button></div>`);
+  setHTML(host, `<div class="game-status"><span>MINESWEEPER</span><span>LEFT OPEN · RIGHT FLAG</span></div><div class="game-wrap"><div class="mine-grid"></div></div><div class="row" style="justify-content:center;margin-top:10px"><div class="select-field" style="flex:1"><label class="select-label" for="mineDifficulty">Difficulty</label><select id="mineDifficulty" class="select-full"><option value="9,9,10">EASY</option><option value="16,12,30">MEDIUM</option><option value="20,14,50">HARD</option></select></div><button class="gameRestart">RESTART</button></div>`);
   let width,height,total,board,mode,opened;
   const reset=()=>{[width,height,total]=$("#mineDifficulty").value.split(",").map(Number);board=Array.from({length:height},(_,y)=>Array.from({length:width},(_,x)=>({x,y,mine:false,open:false,flag:false,n:0})));let placed=0;while(placed<total){const c=board[Math.floor(Math.random()*height)][Math.floor(Math.random()*width)];if(!c.mine){c.mine=true;placed++}}board.flat().forEach(c=>c.n=neighbors(c).filter(n=>n.mine).length);mode="playing";opened=0;paint()};
   const neighbors=c=>board.slice(Math.max(0,c.y-1),c.y+2).flatMap(r=>r.slice(Math.max(0,c.x-1),c.x+2)).filter(n=>n!==c);
@@ -787,7 +787,7 @@ function minesGame(host) {
 }
 
 function tttGame(host) {
-  setHTML(host, `<div class="game-status"><span>TIC-TAC-TOE</span><span id="tttControls">YOU: X · CPU: O</span></div><div class="game-wrap"><div class="ttt"></div><div class="metric" id="tttStatus"></div></div><div class="row" style="justify-content:center;margin-top:10px"><select id="tttPlayers" aria-label="Tic-Tac-Toe player mode"><option value="one">1 PLAYER</option><option value="two">2 PLAYERS</option></select><button class="gameRestart">RESTART</button></div>`);
+  setHTML(host, `<div class="game-status"><span>TIC-TAC-TOE</span><span id="tttControls">YOU: X · CPU: O</span></div><div class="game-wrap"><div class="ttt"></div><div class="metric" id="tttStatus"></div></div><div class="row" style="justify-content:center;margin-top:10px"><div class="select-field" style="flex:1"><label class="select-label" for="tttPlayers">Game mode</label><select id="tttPlayers" class="select-full" aria-label="Tic-Tac-Toe player mode"><option value="one">1 PLAYER</option><option value="two">2 PLAYERS</option></select></div><button class="gameRestart">RESTART</button></div>`);
   let cells,mode,current,playerMode="one",cpuTimer=null;
   const winner=b=>[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]].find(l=>b[l[0]]&&b[l[0]]===b[l[1]]&&b[l[1]]===b[l[2]]);
   const clearCpu=()=>{if(cpuTimer!==null){clearTimeout(cpuTimer);cpuTimer=null}};
@@ -836,8 +836,10 @@ function pongGame(host) {
   let left,right,ball,scores,mode,last,raf,playerMode="one";
   const held=new Set(),playerSpeed=300;
   const controls=$(".gameRestart",host).parentElement;
-  const playerSelect=el("select",{id:"pongPlayers","aria-label":"Pong player mode"},"<option value=\"one\">1 PLAYER</option><option value=\"two\">2 PLAYERS</option>");
-  controls.prepend(playerSelect);
+  const playerField=el("div",{class:"select-field",style:"flex:1"});
+  const playerLabel=el("label",{class:"select-label",for:"pongPlayers"},"GAME MODE");
+  const playerSelect=el("select",{id:"pongPlayers",class:"select-full","aria-label":"Pong player mode"},"<option value=\"one\">1 PLAYER</option><option value=\"two\">2 PLAYERS</option>");
+  playerField.append(playerLabel,playerSelect);controls.prepend(playerField);
   const movementKey=key=>key==="ArrowUp"||key==="ArrowDown"||key.toLowerCase()==="w"||key.toLowerCase()==="s";
   const clearInput=()=>held.clear();
   const controlLabel=()=>$(".game-status span:last-child",host).textContent=playerMode==="two"?"LEFT: W/S · RIGHT: ↑/↓ · FIRST TO 7":"1P: W/S OR ARROWS · FIRST TO 7";
