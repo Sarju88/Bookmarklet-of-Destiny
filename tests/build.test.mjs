@@ -19,13 +19,13 @@ test("bookmarklet is generated and self-contained", async () => {
   assert.match(source, /Amber Terminal/);
   assert.match(source, /matrixBrightness/);
   assert.match(source, /favoriteModules/);
-  assert.match(source, /window\.open\("about:blank"/);
-  assert.match(source, /bookmarkletOfDestiny_/);
-  assert.match(source, /window\.open\("about:blank",popupName,features\)/);
+  assert.match(source, /window\.open\("",popupName,features\)/);
+  assert.match(source, /popupName="bookmarkletOfDestiny"/);
   assert.match(source, /resizeTo/);
   assert.match(source, /moveTo/);
-  assert.match(source, /popup=1/);
-  assert.doesNotMatch(source, /"bookmarkletOfDestiny"/);
+  assert.match(source, /popup=yes/);
+  assert.match(source, /innerWidth/);
+  assert.match(source, /screenX/);
   assert.match(source, /__bookmarkletOfDestinyPopup/);
   assert.match(source, /replaceChildren/);
 });
