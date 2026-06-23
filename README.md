@@ -29,6 +29,24 @@ Open the [Bookmarklet of Destiny installation page](https://sarju88.github.io/Bo
 
 That is all—nothing needs to be downloaded or installed. It works on most ordinary websites. Chrome blocks bookmarklets on New Tab, `chrome://`, extension pages, and the Chrome Web Store; those are the expected exceptions. Use **Test Launch** on the installation page to verify the popup.
 
+## If It Opens as a Tab Instead of a Popup
+
+If **Launch Destiny** opens in a new tab instead of a small popup window, use this checklist:
+
+- Confirm you installed the latest **Launch Destiny** bookmarklet from the [installation page](https://sarju88.github.io/Bookmarklet-of-Destiny/).
+- Delete the old bookmarklet from your bookmarks bar, then drag or copy the newest one again.
+- Test from a normal website such as Google Search, Wikipedia, or YouTube. It will not run from New Tab, `chrome://`, extension pages, or the Chrome Web Store.
+- Exit Chrome full screen with `Control + Command + F`.
+- On macOS, open System Settings → Desktop & Dock → Windows, then set “Prefer tabs when opening documents” to `Never` or `Manually`, not `Always`.
+- Fully quit Chrome with `Command + Q`, reopen it, and test again.
+- To check whether Chrome itself is forcing popups into tabs, create a temporary bookmark with this URL:
+
+  ```js
+  javascript:window.open('https://example.com','popup_test','popup=yes,width=420,height=260,left=100,top=100,toolbar=no,location=no,menubar=no,status=no,resizable=yes,scrollbars=yes')
+  ```
+
+If that tiny popup test also opens as a tab, the issue is Chrome or macOS behavior, not Bookmarklet of Destiny.
+
 ## Development
 
 - `preview.html` is the complete development preview.
