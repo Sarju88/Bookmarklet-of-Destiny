@@ -1,4 +1,5 @@
 import qrcode from "qrcode-generator";
+import { algebraic, checkersLegalMoves, checkersMove, checkersResult, chessLegalMoves, chessMove, chessResult, chooseCheckersMove, chooseChessMove, initialCheckersState, initialChessState } from "./board-games.js";
 
 const bootstrap = globalThis.__BOD_BOOTSTRAP__ || null;
 const appRoot = bootstrap?.root || document;
@@ -48,7 +49,7 @@ const defaults = {
   organizerMigrated: false,
   todos: [],
   calcHistory: [],
-  scores: { snake: 0, "2048": 0, mines: 0, ttt: 0, pong: 0, breakout: 0, connect4: 0, tron: 0, invaders: 0, memory: 0 },
+  scores: { snake: 0, "2048": 0, mines: 0, ttt: 0, pong: 0, breakout: 0, connect4: 0, tron: 0, invaders: 0, memory: 0, chess: 0, checkers: 0 },
   settings: {
     rain: true, sound: false, density: 1, accent: "#39ff88",
     usdInrRate: 94.37, usdInrSourceDate: "", usdInrUpdatedAt: 0,
@@ -121,7 +122,7 @@ const Store = {
 
 const state = {
   page: PAGES.some(([id]) => id === new URLSearchParams(location.search).get("page")) ? new URLSearchParams(location.search).get("page") : "home",
-  game: ["snake", "2048", "mines", "ttt", "pong", "breakout", "connect4", "tron", "invaders", "memory"].includes(new URLSearchParams(location.search).get("game")) ? new URLSearchParams(location.search).get("game") : "snake",
+  game: ["snake", "2048", "mines", "ttt", "pong", "breakout", "connect4", "tron", "invaders", "memory", "chess", "checkers"].includes(new URLSearchParams(location.search).get("game")) ? new URLSearchParams(location.search).get("game") : "snake",
   cleanup: [],
   appCleanup: [],
   timer: { mode: "timer", remaining: 300, running: false, initial: 300, pomodoroWork: true },
@@ -586,7 +587,7 @@ function renderPage() {
 function homePage(root) {
   const todoOpen = Store.data.todos.filter(t => !t.done).length;
   setHTML(root, pageFrame("COMMAND CENTER", "Everyday tools and arcade systems ready.", `<div class="stat-grid">
-    <div class="stat"><b>${PAGES.length}</b><span>MODULES</span></div><div class="stat"><b>10</b><span>GAMES</span></div><div class="stat"><b>${todoOpen}</b><span>OPEN TASKS</span></div><div class="stat"><b>100%</b><span>OFFLINE</span></div>
+    <div class="stat"><b>${PAGES.length}</b><span>MODULES</span></div><div class="stat"><b>12</b><span>GAMES</span></div><div class="stat"><b>${todoOpen}</b><span>OPEN TASKS</span></div><div class="stat"><b>100%</b><span>OFFLINE</span></div>
     </div><div class="grid" style="margin-top:14px"><div class="card full"><h3>Quick launch</h3><div class="row wrap">${PAGES.filter(([id]) => !["home","settings","help"].includes(id)).map(([id, icon, name]) => `<button data-quick="${id}">${icon} ${name}</button>`).join("")}</div></div>
     <div class="card"><h3>System message</h3><div class="output">Wake up, operator. The toolbox is loaded. Press <kbd>Ctrl</kbd> + <kbd>K</kbd> to search every command.</div></div>
     <div class="card"><h3>Local high scores</h3><div class="list">${Object.entries(Store.data.scores).map(([game, score]) => `<div class="item"><span class="grow">${game.toUpperCase()}</span><b>${score}</b></div>`).join("")}</div></div></div>`));
@@ -1680,15 +1681,15 @@ function pageControlsPage(root) {
 }
 
 function gamesPage(root) {
-  const games = [["snake","SNAKE"],["2048","2048"],["mines","MINES"],["ttt","TIC-TAC-TOE"],["pong","PONG"],["breakout","BREAKOUT"],["connect4","CONNECT FOUR"],["tron","TRON"],["invaders","SPACE INVADERS"],["memory","MEMORY"]];
-  setHTML(root, pageFrame("DESTINY ARCADE", "Ten offline games with local records and multiplayer modes.", `<div class="game-selector"><input id="gameSearch" placeholder="Search games..." aria-label="Search arcade games"><div class="game-tabs">${games.map(([id, name]) => `<button data-game="${id}" class="${state.game === id ? "active" : ""}">${name}</button>`).join("")}</div></div><div id="gameHost"></div>`));
+  const games = [["snake","SNAKE"],["2048","2048"],["mines","MINES"],["ttt","TIC-TAC-TOE"],["pong","PONG"],["breakout","BREAKOUT"],["connect4","CONNECT FOUR"],["tron","TRON"],["invaders","SPACE INVADERS"],["memory","MEMORY"],["chess","CHESS"],["checkers","CHECKERS"]];
+  setHTML(root, pageFrame("DESTINY ARCADE", "Twelve offline games with local records and multiplayer modes.", `<div class="game-selector"><input id="gameSearch" placeholder="Search games..." aria-label="Search arcade games"><div class="game-tabs">${games.map(([id, name]) => `<button data-game="${id}" class="${state.game === id ? "active" : ""}">${name}</button>`).join("")}</div></div><div id="gameHost"></div>`));
   $("#gameSearch").oninput = event => $$("[data-game]").forEach(button => button.classList.toggle("hidden", !button.textContent.toLowerCase().includes(event.target.value.toLowerCase())));
   $$("[data-game]").forEach(button => button.onclick = () => { clearGame(); state.game = button.dataset.game; $$("[data-game]").forEach(b => b.classList.toggle("active", b === button)); mountGame(); });
   let gameCleanup = () => {};
   const clearGame = () => { gameCleanup(); gameCleanup = () => {}; };
   const mountGame = () => {
     const host = $("#gameHost");
-    const cleanupGame = ({ snake: snakeGame, "2048": game2048, mines: minesGame, ttt: tttGame, pong: pongGame, breakout: breakoutGame, connect4: connectFourGame, tron: tronGame, invaders: invadersGame, memory: memoryGame })[state.game](host);
+    const cleanupGame = ({ snake: snakeGame, "2048": game2048, mines: minesGame, ttt: tttGame, pong: pongGame, breakout: breakoutGame, connect4: connectFourGame, tron: tronGame, invaders: invadersGame, memory: memoryGame, chess: chessGame, checkers: checkersGame })[state.game](host);
     const cleanupSelects = enhanceSelects(host);
     gameCleanup = () => { cleanupSelects(); cleanupGame(); };
   };
@@ -2060,6 +2061,66 @@ function invadersGame(host) {
   window.advanceTime=ms=>{for(let i=0;i<Math.ceil(ms/16.67);i++)update(1/60);draw()};reset();raf=requestAnimationFrame(loop);canvas.focus();return()=>{held.clear();cancelAnimationFrame(raf);removeEventListener("keydown",down);removeEventListener("keyup",up)};
 }
 
+const CHESS_GLYPHS={K:"♔",Q:"♕",R:"♖",B:"♗",N:"♘",P:"♙",k:"♚",q:"♛",r:"♜",b:"♝",n:"♞",p:"♟"};
+const boardResultLabel=result=>({playing:"PLAYING","white-won":"WHITE WINS","black-won":"BLACK WINS",stalemate:"STALEMATE",repetition:"DRAW · THREEFOLD REPETITION","fifty-move":"DRAW · FIFTY-MOVE RULE",insufficient:"DRAW · INSUFFICIENT MATERIAL","red-won":"RED WINS"})[result]||result.toUpperCase();
+
+function chessGame(host) {
+  setHTML(host, `<div class="game-status"><span>CHESS</span><span id="chessControls">YOU: WHITE · CPU: BLACK</span></div><div class="game-wrap board-game-wrap"><div class="board-game-layout"><div><div class="board-grid chess-board" id="chessBoard" role="grid" aria-label="Chess board"></div><div class="metric board-status" id="chessStatus"></div></div><aside class="move-history"><h3>Move history</h3><div id="chessHistory"></div></aside></div></div><div class="game-control-row"><div class="select-field"><label class="select-label" for="chessPlayers">Game mode</label><select id="chessPlayers" class="select-full"><option value="one">1 PLAYER</option><option value="two">2 PLAYERS</option></select></div><div class="select-field"><label class="select-label" for="chessDifficulty">Difficulty</label><select id="chessDifficulty" class="select-full"><option value="easy">EASY</option><option value="normal" selected>NORMAL</option><option value="hard">HARD</option></select></div><button class="gameRestart">RESTART</button></div><div id="promotionPicker" class="promotion-picker hidden" role="dialog" aria-modal="true"><div><h3>Promote pawn</h3><div class="row">${["q","r","b","n"].map(piece=>`<button data-promotion="${piece}">${CHESS_GLYPHS[piece.toUpperCase()]}</button>`).join("")}</div></div></div>`);
+  let position=initialChessState(),selected=null,cursor=52,playerMode="one",cpuTimer=null,pendingPromotion=null,destroyed=false;
+  const legalFrom=()=>selected===null?[]:chessLegalMoves(position,selected);
+  const scheduleCpu=()=>{if(cpuTimer)clearTimeout(cpuTimer);if(!destroyed&&playerMode==="one"&&position.turn==="b"&&position.result==="playing")cpuTimer=setTimeout(()=>{cpuTimer=null;const move=chooseChessMove(position,$("#chessDifficulty").value,{easy:20,normal:90,hard:180}[$("#chessDifficulty").value]);if(move){position=chessMove(position,move);selected=null;paint()}},120)};
+  const commit=move=>{const next=chessMove(position,move);if(!next)return;position=next;selected=null;pendingPromotion=null;$("#promotionPicker").classList.add("hidden");if(playerMode==="one"&&position.result==="white-won")score("chess",Store.data.scores.chess+1);paint();scheduleCpu()};
+  const choose=(index)=>{
+    if(position.result!=="playing"||(playerMode==="one"&&position.turn==="b"))return;
+    if(selected===null){if(position.board[index]&&((position.board[index]===position.board[index].toUpperCase()?"w":"b")===position.turn)){selected=index;paint()}return}
+    const candidates=legalFrom().filter(move=>move.to===index);
+    if(candidates.length){
+      if(candidates.some(move=>move.promotion)){pendingPromotion={from:selected,to:index};$("#promotionPicker").classList.remove("hidden")}
+      else commit(candidates[0]);
+    }else if(position.board[index]&&((position.board[index]===position.board[index].toUpperCase()?"w":"b")===position.turn)){selected=index;paint()}else{selected=null;paint()}
+  };
+  const paint=()=>{
+    position.result=chessResult(position);
+    const legal=new Set(legalFrom().map(move=>move.to)),board=$("#chessBoard");setHTML(board,"");
+    position.board.forEach((piece,index)=>{const glyph=piece?`<span class="chess-piece ${piece===piece.toUpperCase()?"white":"black"}">${CHESS_GLYPHS[piece]}</span>`:"";const button=el("button",{class:`board-square ${(Math.floor(index/8)+index%8)%2?"dark":"light"} ${selected===index?"selected":""} ${legal.has(index)?"legal":""} ${cursor===index?"cursor":""}`,role:"gridcell","aria-label":`${algebraic(index)} ${piece||"empty"}`},glyph);button.onclick=()=>choose(index);board.append(button)});
+    $("#chessControls").textContent=playerMode==="two"?"WHITE VS BLACK":`YOU: WHITE · CPU: BLACK · BEST ${Store.data.scores.chess}`;
+    $("#chessStatus").textContent=position.result==="playing"?`${position.turn==="w"?"WHITE":"BLACK"} TO MOVE${selected!==null?` · ${algebraic(selected)} SELECTED`:""}`:boardResultLabel(position.result);
+    setHTML($("#chessHistory"),position.history.length?position.history.map((move,index)=>`<span><b>${Math.floor(index/2)+1}${index%2?"...":"."}</b> ${escapeHtml(move)}</span>`).join(""):`<span class="muted">NO MOVES</span>`);
+  };
+  const reset=()=>{if(cpuTimer)clearTimeout(cpuTimer);position=initialChessState();selected=null;cursor=52;pendingPromotion=null;playerMode=$("#chessPlayers").value;$("#promotionPicker").classList.add("hidden");paint()};
+  const key=event=>{if($("#promotionPicker")&&!$("#promotionPicker").classList.contains("hidden"))return;const r=Math.floor(cursor/8),f=cursor%8;if(event.key==="ArrowUp")cursor=Math.max(0,cursor-8);if(event.key==="ArrowDown")cursor=Math.min(63,cursor+8);if(event.key==="ArrowLeft")cursor=r*8+Math.max(0,f-1);if(event.key==="ArrowRight")cursor=r*8+Math.min(7,f+1);if(event.key==="Enter"||event.key===" ")choose(cursor);if(event.key==="Escape"){selected=null;paint()}if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Enter"," "].includes(event.key)){event.preventDefault();paint()}};
+  addEventListener("keydown",key);$$("[data-promotion]",host).forEach(button=>button.onclick=()=>commit({...pendingPromotion,promotion:button.dataset.promotion}));$("#chessPlayers").onchange=reset;$("#chessDifficulty").onchange=reset;$(".gameRestart",host).onclick=reset;
+  window.render_game_to_text=()=>JSON.stringify({game:"chess",mode:position.result,playerMode,difficulty:$("#chessDifficulty").value,coordinateSystem:"a8 index 0 through h1 index 63",currentPlayer:position.turn,selected:selected===null?null:algebraic(selected),cursor:algebraic(cursor),legalDestinations:legalFrom().map(move=>algebraic(move.to)),pieces:position.board.map((piece,index)=>piece?{square:algebraic(index),piece}:null).filter(Boolean),castling:position.castling,enPassant:position.enPassant===null?null:algebraic(position.enPassant),halfmove:position.halfmove,fullmove:position.fullmove,history:position.history,result:position.result});
+  window.__BOD_BOARD_TEST__={kind:"chess",load:value=>{position=structuredClone(value);selected=null;paint()},legal:()=>chessLegalMoves(position),move:value=>{const next=chessMove(position,value);if(next){position=next;paint()}return!!next},state:()=>structuredClone(position)};
+  window.advanceTime=()=>{};reset();return()=>{destroyed=true;if(cpuTimer)clearTimeout(cpuTimer);removeEventListener("keydown",key);delete window.__BOD_BOARD_TEST__};
+}
+
+function checkersGame(host) {
+  setHTML(host, `<div class="game-status"><span>AMERICAN CHECKERS</span><span id="checkersControls">YOU: RED · CPU: BLACK</span></div><div class="game-wrap board-game-wrap"><div class="board-game-layout"><div><div class="board-grid checkers-board" id="checkersBoard" role="grid" aria-label="Checkers board"></div><div class="metric board-status" id="checkersStatus"></div></div><aside class="move-history"><h3>Move history</h3><div id="checkersHistory"></div></aside></div></div><div class="game-control-row"><div class="select-field"><label class="select-label" for="checkersPlayers">Game mode</label><select id="checkersPlayers" class="select-full"><option value="one">1 PLAYER</option><option value="two">2 PLAYERS</option></select></div><div class="select-field"><label class="select-label" for="checkersDifficulty">Difficulty</label><select id="checkersDifficulty" class="select-full"><option value="easy">EASY</option><option value="normal" selected>NORMAL</option><option value="hard">HARD</option></select></div><button class="gameRestart">RESTART</button></div>`);
+  let position=initialCheckersState(),selected=null,cursor=42,playerMode="one",cpuTimer=null,destroyed=false;
+  const legalFrom=()=>selected===null?[]:checkersLegalMoves(position,selected);
+  const scheduleCpu=()=>{if(cpuTimer)clearTimeout(cpuTimer);if(!destroyed&&playerMode==="one"&&position.turn==="b"&&position.result==="playing")cpuTimer=setTimeout(()=>{cpuTimer=null;let guard=0;do{const move=chooseCheckersMove(position,$("#checkersDifficulty").value,{easy:20,normal:70,hard:140}[$("#checkersDifficulty").value]);if(!move)break;position=checkersMove(position,move);guard++}while(position.turn==="b"&&position.forcedFrom!==null&&guard<12);selected=null;paint()},120)};
+  const commit=move=>{const next=checkersMove(position,move);if(!next)return;position=next;selected=position.forcedFrom;position.result=checkersResult(position);if(playerMode==="one"&&position.result==="red-won")score("checkers",Store.data.scores.checkers+1);paint();scheduleCpu()};
+  const choose=index=>{
+    if(position.result!=="playing"||(playerMode==="one"&&position.turn==="b"))return;
+    if(selected===null){if(position.board[index]?.toLowerCase()===position.turn){selected=index;paint()}return}
+    const move=legalFrom().find(item=>item.to===index);if(move)commit(move);else if(position.forcedFrom===null&&position.board[index]?.toLowerCase()===position.turn){selected=index;paint()}else if(position.forcedFrom===null){selected=null;paint()}
+  };
+  const paint=()=>{
+    position.result=checkersResult(position);const legal=new Set(legalFrom().map(move=>move.to)),board=$("#checkersBoard");setHTML(board,"");
+    position.board.forEach((piece,index)=>{const dark=(Math.floor(index/8)+index%8)%2;const glyph=piece?`<span class="checker-piece ${piece.toLowerCase()==="r"?"red":"black"} ${piece===piece.toUpperCase()?"king":""}">${piece===piece.toUpperCase()?"★":""}</span>`:"";const button=el("button",{class:`board-square ${dark?"dark":"light"} ${selected===index?"selected":""} ${legal.has(index)?"legal":""} ${cursor===index?"cursor":""}`,role:"gridcell","aria-label":`${algebraic(index)} ${piece||"empty"}`},glyph);button.onclick=()=>choose(index);board.append(button)});
+    $("#checkersControls").textContent=playerMode==="two"?"RED VS BLACK":`YOU: RED · CPU: BLACK · BEST ${Store.data.scores.checkers}`;
+    $("#checkersStatus").textContent=position.result==="playing"?`${position.turn==="r"?"RED":"BLACK"} TO MOVE${position.forcedFrom!==null?" · CONTINUE JUMP":selected!==null?` · ${algebraic(selected)} SELECTED`:""}`:boardResultLabel(position.result);
+    setHTML($("#checkersHistory"),position.history.length?position.history.map((move,index)=>`<span><b>${index+1}.</b> ${move}</span>`).join(""):`<span class="muted">NO MOVES</span>`);
+  };
+  const reset=()=>{if(cpuTimer)clearTimeout(cpuTimer);position=initialCheckersState();selected=null;cursor=42;playerMode=$("#checkersPlayers").value;paint()};
+  const key=event=>{const r=Math.floor(cursor/8),f=cursor%8;if(event.key==="ArrowUp")cursor=Math.max(0,cursor-8);if(event.key==="ArrowDown")cursor=Math.min(63,cursor+8);if(event.key==="ArrowLeft")cursor=r*8+Math.max(0,f-1);if(event.key==="ArrowRight")cursor=r*8+Math.min(7,f+1);if(event.key==="Enter"||event.key===" ")choose(cursor);if(event.key==="Escape"&&position.forcedFrom===null){selected=null;paint()}if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Enter"," "].includes(event.key)){event.preventDefault();paint()}};
+  addEventListener("keydown",key);$("#checkersPlayers").onchange=reset;$("#checkersDifficulty").onchange=reset;$(".gameRestart",host).onclick=reset;
+  window.render_game_to_text=()=>JSON.stringify({game:"checkers",mode:position.result,playerMode,difficulty:$("#checkersDifficulty").value,coordinateSystem:"a8 index 0 through h1 index 63",currentPlayer:position.turn,selected:selected===null?null:algebraic(selected),cursor:algebraic(cursor),forcedFrom:position.forcedFrom===null?null:algebraic(position.forcedFrom),legalDestinations:legalFrom().map(move=>algebraic(move.to)),pieces:position.board.map((piece,index)=>piece?{square:algebraic(index),piece}:null).filter(Boolean),history:position.history,result:position.result});
+  window.__BOD_BOARD_TEST__={kind:"checkers",load:value=>{position=structuredClone(value);selected=null;paint()},legal:()=>checkersLegalMoves(position),move:value=>{const next=checkersMove(position,value);if(next){position=next;paint()}return!!next},state:()=>structuredClone(position)};
+  window.advanceTime=()=>{};reset();return()=>{destroyed=true;if(cpuTimer)clearTimeout(cpuTimer);removeEventListener("keydown",key);delete window.__BOD_BOARD_TEST__};
+}
+
 function settingsPage(root) {
   setHTML(root, pageFrame("SETTINGS", "Customize visuals and manage local data.", `<div class="grid"><div class="card"><h3>Matrix display</h3><label class="item"><input id="rainSetting" type="checkbox" ${Store.data.settings.rain ? "checked" : ""} style="width:auto"> Digital rain enabled</label><label>Rain speed<input id="densitySetting" type="range" min=".4" max="2" step=".1" value="${Store.data.settings.density}"></label><label>Accent color<input id="accentSetting" type="color" value="${Store.data.settings.accent}" style="height:45px"></label></div>
     <div class="card"><h3>Data</h3><p class="muted">Data is stored only for this website origin. Reset permanently deletes notes, tasks, history, settings, and scores.</p><button id="resetData" class="danger">RESET ALL LOCAL DATA</button></div>
@@ -2078,7 +2139,7 @@ function resetAll() {
 function helpPage(root) {
   setHTML(root, pageFrame("HELP & SHORTCUTS", "Operational notes for the dashboard.", `<div class="grid"><div class="card"><h3>Global controls</h3><div class="list"><div class="item"><kbd>Ctrl/⌘ K</kbd><span>Command palette</span></div><div class="item"><kbd>Esc</kbd><span>Close palette / exit fullscreen</span></div><div class="item"><kbd>F</kbd><span>Fullscreen active canvas game</span></div></div></div>
     <div class="card"><h3>Game controls</h3><div class="list"><div class="item"><kbd>WASD / Arrows</kbd><span>Snake, 2048, Pong, Tron, Breakout, Invaders</span></div><div class="item"><kbd>Space / P</kbd><span>Pause or shoot where shown</span></div><div class="item"><kbd>Q / E / Enter / Shift</kbd><span>Two-player Minesweeper open and flag</span></div><div class="item"><kbd>Right click</kbd><span>Flag a Minesweeper cell</span></div></div></div>
-    <div class="card full"><h3>Expanded Arcade</h3><p class="muted">Ten offline games include Breakout, Connect Four, Tron, Space Invaders, and Memory Match. Snake and Minesweeper now include local two-player battle modes alongside Tic-Tac-Toe and Pong.</p></div>
+    <div class="card full"><h3>Expanded Arcade</h3><p class="muted">Twelve offline games include full-rule Chess, American Checkers, Breakout, Connect Four, Tron, Space Invaders, and Memory Match. Chess and Checkers support CPU and local two-player modes.</p></div>
     <div class="card full"><h3>Calendar tools</h3><p class="muted">Browse a Sunday-first monthly calendar, compare dates, add or subtract whole days, and calculate age using local calendar dates.</p></div>
     <div class="card full"><h3>World Clock</h3><p class="muted">Save live IANA time zones and convert a chosen local date and time with daylight-saving gap and overlap detection.</p></div>
     <div class="card full"><h3>Color Tools</h3><p class="muted">Convert HEX, RGB, and HSL; generate palettes; check WCAG contrast; and preview approximate color-vision simulations.</p></div>

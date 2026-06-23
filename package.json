@@ -1,6 +1,7 @@
 {
   "name": "bookmarklet-of-destiny",
   "version": "1.0.0",
+  "type": "module",
   "private": true,
   "description": "A self-contained terminal dashboard bookmarklet.",
   "scripts": {

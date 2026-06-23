@@ -655,7 +655,7 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     await panel.locator('[data-game="2048"]').click();
     await panel.keyboard.press("ArrowLeft");
     assert.match(await panel.evaluate(() => window.render_game_to_text()), /"game":"2048"/);
-    for (const [id, expected] of [["breakout","breakout"],["connect4","connect-four"],["tron","tron"],["invaders","space-invaders"],["memory","memory"]]) {
+    for (const [id, expected] of [["breakout","breakout"],["connect4","connect-four"],["tron","tron"],["invaders","space-invaders"],["memory","memory"],["chess","chess"],["checkers","checkers"]]) {
       await panel.locator(`[data-game="${id}"]`).click();
       assert.equal(JSON.parse(await panel.evaluate(() => window.render_game_to_text())).game, expected);
     }
@@ -824,11 +824,11 @@ test("bookmarklet opens its popup from local file pages", async () => {
   });
 });
 
-test("expanded arcade mounts ten games and exercises new multiplayer controls", async () => {
+test("expanded arcade mounts twelve games and exercises multiplayer controls", async () => {
   await withBrowser(async ({ page }) => {
     await mkdir(shots, { recursive: true });
     await page.goto(`${base}/preview.html?page=games&game=breakout`);
-    assert.equal(await page.locator("[data-game]").count(), 10);
+    assert.equal(await page.locator("[data-game]").count(), 12);
     const gameState = () => page.evaluate(() => JSON.parse(window.render_game_to_text()));
 
     let state = await gameState();
@@ -917,6 +917,62 @@ test("expanded arcade mounts ten games and exercises new multiplayer controls", 
     await page.fill("#gameSearch", "pong");
     assert.equal(await page.locator("[data-game]:not(.hidden)").count(), 1);
     assert.match(await page.locator("[data-game]:not(.hidden)").textContent(), /PONG/);
+  });
+});
+
+test("Chess and Checkers support CPU, two-player, keyboard, and special UI states", async () => {
+  await withBrowser(async ({ page }) => {
+    await page.goto(`${base}/preview.html?page=games&game=chess`);
+    const state = () => page.evaluate(() => JSON.parse(window.render_game_to_text()));
+    assert.equal((await state()).game, "chess");
+    assert.equal(await page.locator(".chess-board .board-square").count(), 64);
+    await page.locator(".chess-board .board-square").nth(52).click();
+    assert.deepEqual((await state()).legalDestinations.sort(), ["e3","e4"]);
+    await page.locator(".chess-board .board-square").nth(36).click();
+    await page.waitForFunction(() => JSON.parse(window.render_game_to_text()).history.length >= 2);
+    assert.match((await state()).history[0], /^e4/);
+    assert.equal((await state()).currentPlayer, "w");
+    await page.locator("#chessPlayers").selectOption("two");
+    const chessScore = await page.evaluate(() => JSON.parse(localStorage.getItem("bookmarklet-of-destiny:v1")).scores.chess);
+    await page.keyboard.press("ArrowUp");
+    assert.equal((await state()).cursor, "e3");
+    await page.keyboard.press("Escape");
+
+    const promotion = {
+      board:Array(64).fill(""),turn:"w",castling:"",enPassant:null,halfmove:0,fullmove:1,history:[],repetition:{},result:"playing"
+    };
+    promotion.board[60]="K"; promotion.board[4]="k"; promotion.board[8]="P";
+    await page.evaluate(value => window.__BOD_BOARD_TEST__.load(value), promotion);
+    await page.locator(".chess-board .board-square").nth(8).click();
+    await page.locator(".chess-board .board-square").nth(0).click();
+    assert.equal(await page.locator("#promotionPicker").evaluate(node => !node.classList.contains("hidden")), true);
+    await page.locator('[data-promotion="n"]').click();
+    assert.equal((await state()).pieces.find(piece => piece.square === "a8").piece, "N");
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("bookmarklet-of-destiny:v1")).scores.chess), chessScore);
+    await capture(page, `${shots}/chess.png`);
+
+    await page.locator('[data-game="checkers"]').click();
+    assert.equal((await state()).game, "checkers");
+    assert.equal(await page.locator(".checkers-board .board-square").count(), 64);
+    await page.locator("#checkersPlayers").selectOption("two");
+    const checkersScore = await page.evaluate(() => JSON.parse(localStorage.getItem("bookmarklet-of-destiny:v1")).scores.checkers);
+    const forced = { board:Array(64).fill(""),turn:"r",forcedFrom:null,history:[],result:"playing" };
+    forced.board[42]="r"; forced.board[35]="b"; forced.board[21]="b";
+    await page.evaluate(value => window.__BOD_BOARD_TEST__.load(value), forced);
+    await page.locator(".checkers-board .board-square").nth(42).click();
+    assert.deepEqual((await state()).legalDestinations, ["e5"]);
+    await page.locator(".checkers-board .board-square").nth(28).click();
+    assert.equal((await state()).forcedFrom, "e5");
+    assert.match(await page.locator("#checkersStatus").textContent(), /CONTINUE JUMP/);
+    await page.locator(".checkers-board .board-square").nth(14).click();
+    assert.equal((await state()).currentPlayer, "b");
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("bookmarklet-of-destiny:v1")).scores.checkers), checkersScore);
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("Enter");
+    await page.setViewportSize({ width: 700, height: 520 });
+    assert.equal(await page.locator(".board-grid").isVisible(), true);
+    assert.equal(await page.locator(".content").evaluate(node => node.scrollHeight > node.clientHeight), true);
+    await capture(page, `${shots}/checkers.png`);
   });
 });
 

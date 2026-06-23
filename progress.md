@@ -85,3 +85,16 @@ Original prompt: Build the complete “Bookmarklet of Destiny” plan: a self-co
 - Strict-CSP compact popup mounts all five new games.
 - Both full regression suites pass 14/14.
 - Stage 6 implementation is complete; no remaining TODOs.
+
+## Stage 7 progress
+
+- Added pure offline Chess and American Checkers engines.
+- Added arcade registry, routing, score defaults, and compact board layouts for both games.
+- Added rule-engine tests for Chess movement, castling, en passant, promotion, checkmate, stalemate, draw rules, and bounded CPUs.
+- Added Checkers engine tests for mandatory captures, chained jumps, kings, endings, and legal CPUs.
+- Browser tests cover CPU replies, two-player score isolation, promotion choice, chained jumps, keyboard cursor controls, and strict-CSP popup mounting.
+- Game-client action bursts produced matching Chess and Checkers state output with no console errors.
+- Visual inspection corrected Chess piece contrast and algebraic move-number prefixes.
+- Both complete 20-test regression suites pass.
+- Compact 700×520 board scrolling and strict-CSP popup mounting are covered.
+- Stage 7 implementation is complete; no remaining TODOs.
