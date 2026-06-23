@@ -48,7 +48,7 @@ const defaults = {
   organizerMigrated: false,
   todos: [],
   calcHistory: [],
-  scores: { snake: 0, "2048": 0, mines: 0, ttt: 0, pong: 0 },
+  scores: { snake: 0, "2048": 0, mines: 0, ttt: 0, pong: 0, breakout: 0, connect4: 0, tron: 0, invaders: 0, memory: 0 },
   settings: {
     rain: true, sound: false, density: 1, accent: "#39ff88",
     usdInrRate: 94.37, usdInrSourceDate: "", usdInrUpdatedAt: 0,
@@ -121,7 +121,7 @@ const Store = {
 
 const state = {
   page: PAGES.some(([id]) => id === new URLSearchParams(location.search).get("page")) ? new URLSearchParams(location.search).get("page") : "home",
-  game: ["snake", "2048", "mines", "ttt", "pong"].includes(new URLSearchParams(location.search).get("game")) ? new URLSearchParams(location.search).get("game") : "snake",
+  game: ["snake", "2048", "mines", "ttt", "pong", "breakout", "connect4", "tron", "invaders", "memory"].includes(new URLSearchParams(location.search).get("game")) ? new URLSearchParams(location.search).get("game") : "snake",
   cleanup: [],
   appCleanup: [],
   timer: { mode: "timer", remaining: 300, running: false, initial: 300, pomodoroWork: true },
@@ -586,7 +586,7 @@ function renderPage() {
 function homePage(root) {
   const todoOpen = Store.data.todos.filter(t => !t.done).length;
   setHTML(root, pageFrame("COMMAND CENTER", "Everyday tools and arcade systems ready.", `<div class="stat-grid">
-    <div class="stat"><b>${PAGES.length}</b><span>MODULES</span></div><div class="stat"><b>5</b><span>GAMES</span></div><div class="stat"><b>${todoOpen}</b><span>OPEN TASKS</span></div><div class="stat"><b>100%</b><span>OFFLINE</span></div>
+    <div class="stat"><b>${PAGES.length}</b><span>MODULES</span></div><div class="stat"><b>10</b><span>GAMES</span></div><div class="stat"><b>${todoOpen}</b><span>OPEN TASKS</span></div><div class="stat"><b>100%</b><span>OFFLINE</span></div>
     </div><div class="grid" style="margin-top:14px"><div class="card full"><h3>Quick launch</h3><div class="row wrap">${PAGES.filter(([id]) => !["home","settings","help"].includes(id)).map(([id, icon, name]) => `<button data-quick="${id}">${icon} ${name}</button>`).join("")}</div></div>
     <div class="card"><h3>System message</h3><div class="output">Wake up, operator. The toolbox is loaded. Press <kbd>Ctrl</kbd> + <kbd>K</kbd> to search every command.</div></div>
     <div class="card"><h3>Local high scores</h3><div class="list">${Object.entries(Store.data.scores).map(([game, score]) => `<div class="item"><span class="grow">${game.toUpperCase()}</span><b>${score}</b></div>`).join("")}</div></div></div>`));
@@ -1680,13 +1680,15 @@ function pageControlsPage(root) {
 }
 
 function gamesPage(root) {
-  setHTML(root, pageFrame("DESTINY ARCADE", "Five keyboard-ready classics with local high scores.", `<div class="game-tabs">${[["snake","SNAKE"],["2048","2048"],["mines","MINESWEEPER"],["ttt","TIC-TAC-TOE"],["pong","PONG"]].map(([id, name]) => `<button data-game="${id}" class="${state.game === id ? "active" : ""}">${name}</button>`).join("")}</div><div id="gameHost"></div>`));
+  const games = [["snake","SNAKE"],["2048","2048"],["mines","MINES"],["ttt","TIC-TAC-TOE"],["pong","PONG"],["breakout","BREAKOUT"],["connect4","CONNECT FOUR"],["tron","TRON"],["invaders","SPACE INVADERS"],["memory","MEMORY"]];
+  setHTML(root, pageFrame("DESTINY ARCADE", "Ten offline games with local records and multiplayer modes.", `<div class="game-selector"><input id="gameSearch" placeholder="Search games..." aria-label="Search arcade games"><div class="game-tabs">${games.map(([id, name]) => `<button data-game="${id}" class="${state.game === id ? "active" : ""}">${name}</button>`).join("")}</div></div><div id="gameHost"></div>`));
+  $("#gameSearch").oninput = event => $$("[data-game]").forEach(button => button.classList.toggle("hidden", !button.textContent.toLowerCase().includes(event.target.value.toLowerCase())));
   $$("[data-game]").forEach(button => button.onclick = () => { clearGame(); state.game = button.dataset.game; $$("[data-game]").forEach(b => b.classList.toggle("active", b === button)); mountGame(); });
   let gameCleanup = () => {};
   const clearGame = () => { gameCleanup(); gameCleanup = () => {}; };
   const mountGame = () => {
     const host = $("#gameHost");
-    const cleanupGame = ({ snake: snakeGame, "2048": game2048, mines: minesGame, ttt: tttGame, pong: pongGame })[state.game](host);
+    const cleanupGame = ({ snake: snakeGame, "2048": game2048, mines: minesGame, ttt: tttGame, pong: pongGame, breakout: breakoutGame, connect4: connectFourGame, tron: tronGame, invaders: invadersGame, memory: memoryGame })[state.game](host);
     const cleanupSelects = enhanceSelects(host);
     gameCleanup = () => { cleanupSelects(); cleanupGame(); };
   };
@@ -1705,40 +1707,46 @@ function canvasBase(host, title, controls, width = 600, height = 420) {
 }
 
 function snakeGame(host) {
-  const canvas = canvasBase(host, "SNAKE", "ARROWS/WASD · SPACE PAUSE"), ctx = canvas.getContext("2d");
-  const size = 20, cols = 30, rows = 21;
-  let snake, direction, next, food, points, mode, accumulator = 0;
-  const spawn = () => { do food = { x: Math.floor(Math.random() * cols), y: Math.floor(Math.random() * rows) }; while (snake.some(p => p.x === food.x && p.y === food.y)); };
-  const reset = () => { snake = [{x:10,y:10},{x:9,y:10},{x:8,y:10}]; direction = next = {x:1,y:0}; points = 0; mode = "playing"; accumulator = 0; spawn(); draw(); };
-  const update = dt => {
-    if (mode !== "playing") return;
-    accumulator += dt;
-    while (accumulator >= .11) {
-      accumulator -= .11; direction = next;
-      const head = { x: snake[0].x + direction.x, y: snake[0].y + direction.y };
-      if (head.x < 0 || head.x >= cols || head.y < 0 || head.y >= rows || snake.some(p => p.x === head.x && p.y === head.y)) { mode = "gameover"; score("snake", points); break; }
-      snake.unshift(head);
-      if (head.x === food.x && head.y === food.y) { points++; spawn(); } else snake.pop();
-    }
+  const canvas = canvasBase(host, "SNAKE", "1P: ARROWS/WASD · 2P: P1 WASD / P2 ARROWS"), ctx = canvas.getContext("2d");
+  const {modeSelect,difficultySelect}=addGameOptions(host,{mode:true,difficulty:true,modeId:"snakePlayers",difficultyId:"snakeDifficulty"});
+  const size=20,cols=30,rows=21;let snakes,directions,nextDirections,food,points,mode,accumulator=0,rounds,playerMode="one",roundTimer=null;
+  const occupied=()=>snakes.flat();
+  const spawn=()=>{do food={x:Math.floor(Math.random()*cols),y:Math.floor(Math.random()*rows)};while(occupied().some(p=>p.x===food.x&&p.y===food.y))};
+  const resetRound=()=>{snakes=playerMode==="two"?[[{x:7,y:10},{x:6,y:10},{x:5,y:10}],[{x:22,y:10},{x:23,y:10},{x:24,y:10}]]:[[{x:10,y:10},{x:9,y:10},{x:8,y:10}]];directions=playerMode==="two"?[{x:1,y:0},{x:-1,y:0}]:[{x:1,y:0}];nextDirections=directions.map(d=>({...d}));accumulator=0;mode="playing";spawn();draw()};
+  const reset=()=>{if(roundTimer)clearTimeout(roundTimer);playerMode=modeSelect.value;points=0;rounds=[0,0];resetRound()};
+  const setDir=(index,x,y)=>{const current=directions[index];if(current&&!(x===-current.x&&y===-current.y))nextDirections[index]={x,y}};
+  const endRound=losers=>{
+    if(playerMode==="one"){mode="gameover";score("snake",points);return}
+    const winner=losers.length===1?1-losers[0]:-1;if(winner>=0)rounds[winner]++;
+    if(Math.max(...rounds)>=5)mode=winner===0?"p1-won":"p2-won";
+    else{mode=winner<0?"round-draw":winner===0?"p1-round":"p2-round";roundTimer=setTimeout(resetRound,500)}
   };
+  const tick=()=>{
+    directions=nextDirections.map(d=>({...d}));
+    const heads=snakes.map((snake,index)=>({x:snake[0].x+directions[index].x,y:snake[0].y+directions[index].y}));
+    const losers=[];heads.forEach((head,index)=>{const hitWall=head.x<0||head.x>=cols||head.y<0||head.y>=rows;const hitBody=snakes.some((snake,snakeIndex)=>snake.some((part,partIndex)=>!(snakeIndex===index&&partIndex===snake.length-1)&&part.x===head.x&&part.y===head.y));const headOn=heads.some((other,otherIndex)=>otherIndex!==index&&other.x===head.x&&other.y===head.y);if(hitWall||hitBody||headOn)losers.push(index)});
+    if(losers.length)return endRound(losers);
+    heads.forEach((head,index)=>{snakes[index].unshift(head);if(head.x===food.x&&head.y===food.y){if(playerMode==="one")points++;spawn()}else snakes[index].pop()});
+  };
+  const update=dt=>{if(mode!=="playing")return;accumulator+=dt;const interval={easy:.14,normal:.11,hard:.08}[difficultySelect.value];while(accumulator>=interval){accumulator-=interval;tick();if(mode!=="playing")break}};
   const draw = () => {
     ctx.fillStyle="#020704";ctx.fillRect(0,0,canvas.width,canvas.height);ctx.strokeStyle="#0b2b18";
     for(let x=0;x<canvas.width;x+=size){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,canvas.height);ctx.stroke()}for(let y=0;y<canvas.height;y+=size){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(canvas.width,y);ctx.stroke()}
     ctx.fillStyle="#ff5577";ctx.fillRect(food.x*size+3,food.y*size+3,size-6,size-6);
-    snake.forEach((p,i)=>{ctx.fillStyle=i?"#31c96d":"#aaffc1";ctx.fillRect(p.x*size+2,p.y*size+2,size-4,size-4)});
-    ctx.fillStyle="#b7ffd1";ctx.font="16px monospace";ctx.fillText(`SCORE ${points}  BEST ${Store.data.scores.snake}`,12,22);
-    if(mode==="gameover"){ctx.fillStyle="#000c";ctx.fillRect(0,0,canvas.width,canvas.height);ctx.fillStyle="#ff7790";ctx.font="30px monospace";ctx.textAlign="center";ctx.fillText("SIGNAL LOST",canvas.width/2,canvas.height/2);ctx.textAlign="left"}
+    snakes.forEach((snake,index)=>snake.forEach((p,i)=>{ctx.fillStyle=index?(i?"#258bb0":"#bcefff"):(i?"#31c96d":"#aaffc1");ctx.fillRect(p.x*size+2,p.y*size+2,size-4,size-4)}));
+    ctx.fillStyle="#b7ffd1";ctx.font="16px monospace";ctx.fillText(playerMode==="one"?`SCORE ${points}  BEST ${Store.data.scores.snake}`:`P1 ${rounds[0]} — ${rounds[1]} P2`,12,22);
+    if(mode!=="playing"){ctx.fillStyle="#000c";ctx.fillRect(0,0,canvas.width,canvas.height);ctx.fillStyle=mode==="paused"?"#ffd166":"#ff7790";ctx.font="30px monospace";ctx.textAlign="center";ctx.fillText(({paused:"PAUSED",gameover:"SIGNAL LOST","p1-won":"PLAYER 1 WINS","p2-won":"PLAYER 2 WINS","p1-round":"P1 ROUND","p2-round":"P2 ROUND","round-draw":"ROUND DRAW"})[mode]||mode,canvas.width/2,canvas.height/2);ctx.textAlign="left"}
   };
   const key = e => {
-    const map={ArrowUp:[0,-1],w:[0,-1],ArrowDown:[0,1],s:[0,1],ArrowLeft:[-1,0],a:[-1,0],ArrowRight:[1,0],d:[1,0]};
-    if(map[e.key] && !(map[e.key][0]===-direction.x&&map[e.key][1]===-direction.y)){next={x:map[e.key][0],y:map[e.key][1]};e.preventDefault()}
-    if(e.key===" "){mode=mode==="paused"?"playing":"paused";e.preventDefault()}if(e.key.toLowerCase()==="f")$(".gameFull",host).click();
+    const k=e.key.length===1?e.key.toLowerCase():e.key;if(k==="w")setDir(0,0,-1);if(k==="s")setDir(0,0,1);if(k==="a")setDir(0,-1,0);if(k==="d")setDir(0,1,0);
+    const arrowPlayer=playerMode==="two"?1:0;if(k==="ArrowUp")setDir(arrowPlayer,0,-1);if(k==="ArrowDown")setDir(arrowPlayer,0,1);if(k==="ArrowLeft")setDir(arrowPlayer,-1,0);if(k==="ArrowRight")setDir(arrowPlayer,1,0);
+    if(["w","a","s","d","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(k))e.preventDefault();if(e.key===" "){mode=mode==="paused"?"playing":mode==="playing"?"paused":mode;e.preventDefault()}if(e.key.toLowerCase()==="f")$(".gameFull",host).click();
   };
   let last=performance.now(),raf;const loop=t=>{const dt=Math.min(.05,(t-last)/1000);last=t;update(dt);draw();raf=requestAnimationFrame(loop)};
-  addEventListener("keydown",key);$(".gameRestart",host).onclick=reset;$(".gamePause",host).onclick=()=>mode=mode==="paused"?"playing":"paused";
-  window.render_game_to_text=()=>JSON.stringify({game:"snake",mode,coordinates:"origin top-left, +x right, +y down",snake,food,score:points});
+  addEventListener("keydown",key);modeSelect.onchange=reset;difficultySelect.onchange=reset;$(".gameRestart",host).onclick=reset;$(".gamePause",host).onclick=()=>mode=mode==="paused"?"playing":mode==="playing"?"paused":mode;
+  window.render_game_to_text=()=>JSON.stringify({game:"snake",mode,playerMode,difficulty:difficultySelect.value,coordinates:"origin top-left, +x right, +y down",snakes,food,score:points,rounds});
   window.advanceTime=ms=>{for(let i=0;i<Math.ceil(ms/16.67);i++)update(1/60);draw()};reset();raf=requestAnimationFrame(loop);canvas.focus();
-  return()=>{cancelAnimationFrame(raf);removeEventListener("keydown",key)};
+  return()=>{if(roundTimer)clearTimeout(roundTimer);cancelAnimationFrame(raf);removeEventListener("keydown",key)};
 }
 
 function game2048(host) {
@@ -1755,13 +1763,22 @@ function game2048(host) {
 }
 
 function minesGame(host) {
-  setHTML(host, `<div class="game-status"><span>MINESWEEPER</span><span>LEFT OPEN · RIGHT FLAG</span></div><div class="game-wrap"><div class="mine-grid"></div></div><div class="row" style="justify-content:center;margin-top:10px"><div class="select-field" style="flex:1"><label class="select-label" for="mineDifficulty">Difficulty</label><select id="mineDifficulty" class="select-full"><option value="9,9,10">EASY</option><option value="16,12,30">MEDIUM</option><option value="20,14,50">HARD</option></select></div><button class="gameRestart">RESTART</button></div>`);
-  let width,height,total,board,mode,opened;
-  const reset=()=>{[width,height,total]=$("#mineDifficulty").value.split(",").map(Number);board=Array.from({length:height},(_,y)=>Array.from({length:width},(_,x)=>({x,y,mine:false,open:false,flag:false,n:0})));let placed=0;while(placed<total){const c=board[Math.floor(Math.random()*height)][Math.floor(Math.random()*width)];if(!c.mine){c.mine=true;placed++}}board.flat().forEach(c=>c.n=neighbors(c).filter(n=>n.mine).length);mode="playing";opened=0;paint()};
-  const neighbors=c=>board.slice(Math.max(0,c.y-1),c.y+2).flatMap(r=>r.slice(Math.max(0,c.x-1),c.x+2)).filter(n=>n!==c);
-  const open=c=>{if(mode!=="playing"||c.flag||c.open)return;c.open=true;opened++;if(c.mine){mode="gameover";board.flat().filter(x=>x.mine).forEach(x=>x.open=true)}else if(c.n===0)neighbors(c).forEach(open);if(opened===width*height-total){mode="won";score("mines",Math.max(Store.data.scores.mines,total))}paint()};
-  const paint=()=>{const grid=$(".mine-grid",host);grid.style.gridTemplateColumns=`repeat(${width},30px)`;setHTML(grid,"");board.flat().forEach(c=>{const b=el("button",{class:c.open?"open":c.flag?"flag":""},c.open?(c.mine?"✹":c.n||""):c.flag?"⚑":"");b.onclick=()=>open(c);b.oncontextmenu=e=>{e.preventDefault();if(!c.open){c.flag=!c.flag;paint()}};grid.append(b)});if(mode!=="playing")insertHTML(grid,"afterend",`<div class="metric" style="margin-top:12px;color:${mode==="won"?"var(--green)":"var(--danger)"}">${mode.toUpperCase()}</div>`)};
-  $(".gameRestart",host).onclick=reset;$("#mineDifficulty").onchange=reset;window.render_game_to_text=()=>JSON.stringify({game:"minesweeper",mode,size:[width,height],mines:total,visible:board.flat().filter(c=>c.open||c.flag).map(c=>({x:c.x,y:c.y,open:c.open,flag:c.flag,value:c.open?(c.mine?"mine":c.n):null}))});window.advanceTime=()=>{};reset();return()=>{};
+  setHTML(host, `<div class="game-status"><span>MINESWEEPER</span><span id="mineControls">LEFT OPEN · RIGHT FLAG</span></div><div class="game-wrap"><div id="mineHost"></div></div><div class="game-control-row"><div class="select-field"><label class="select-label" for="minePlayers">Game mode</label><select id="minePlayers" class="select-full"><option value="one">1 PLAYER</option><option value="two">2 PLAYERS</option></select></div><div class="select-field"><label class="select-label" for="mineDifficulty">Difficulty</label><select id="mineDifficulty" class="select-full"><option value="easy">EASY</option><option value="normal" selected>NORMAL</option><option value="hard">HARD</option></select></div><button class="gameRestart">RESTART</button></div>`);
+  let boards,mode,playerMode="one",cursors;
+  const config=()=>playerMode==="two"?({easy:[6,6,6],normal:[7,7,9],hard:[8,8,13]})[$("#mineDifficulty").value]:({easy:[9,9,10],normal:[16,12,30],hard:[20,14,50]})[$("#mineDifficulty").value];
+  const neighbors=(board,c)=>board.cells.slice(Math.max(0,c.y-1),c.y+2).flatMap(row=>row.slice(Math.max(0,c.x-1),c.x+2)).filter(n=>n!==c);
+  const makeBoard=()=>{const [width,height,total]=config(),board={width,height,total,opened:0,state:"playing",cells:Array.from({length:height},(_,y)=>Array.from({length:width},(_,x)=>({x,y,mine:false,open:false,flag:false,n:0})))};let placed=0;while(placed<total){const c=board.cells[Math.floor(Math.random()*height)][Math.floor(Math.random()*width)];if(!c.mine){c.mine=true;placed++}}board.cells.flat().forEach(c=>c.n=neighbors(board,c).filter(n=>n.mine).length);return board};
+  const reveal=(board,c)=>{if(board.state!=="playing"||c.flag||c.open)return;c.open=true;board.opened++;if(c.mine){board.state="lost";board.cells.flat().filter(x=>x.mine).forEach(x=>x.open=true)}else if(c.n===0)neighbors(board,c).forEach(n=>reveal(board,n));if(board.opened===board.width*board.height-board.total)board.state="won"};
+  const checkRace=()=>{if(playerMode==="one"){if(boards[0].state==="won"){mode="won";score("mines",Math.max(Store.data.scores.mines,boards[0].total))}else if(boards[0].state==="lost")mode="gameover"}else if(boards[0].state!=="playing"||boards[1].state!=="playing"){mode=boards[0].state==="won"?"p1-won":boards[1].state==="won"?"p2-won":boards[0].state==="lost"?"p2-won":"p1-won"}};
+  const openAt=(index,x,y)=>{const board=boards[index],c=board.cells[y]?.[x];if(!c)return;reveal(board,c);checkRace();paint()};
+  const flagAt=(index,x,y)=>{const c=boards[index].cells[y]?.[x];if(c&&!c.open&&boards[index].state==="playing"){c.flag=!c.flag;paint()}};
+  const paintGrid=(board,index)=>{const grid=el("div",{class:"mine-grid"});grid.style.gridTemplateColumns=`repeat(${board.width},30px)`;board.cells.flat().forEach(c=>{const selected=playerMode==="two"&&c.x===cursors[index].x&&c.y===cursors[index].y;const b=el("button",{class:`${c.open?"open":c.flag?"flag":""}${selected?" active":""}`},c.open?(c.mine?"✹":c.n||""):c.flag?"⚑":"");b.onclick=()=>openAt(index,c.x,c.y);b.oncontextmenu=e=>{e.preventDefault();flagAt(index,c.x,c.y)};grid.append(b)});return grid};
+  const paint=()=>{const area=$("#mineHost");setHTML(area,"");if(playerMode==="two"){const race=el("div",{class:"mines-race"});boards.forEach((board,index)=>{const wrap=el("div",{class:`mine-player ${index===0?"active":""}`},`<b>PLAYER ${index+1}</b>`);wrap.append(paintGrid(board,index));race.append(wrap)});area.append(race)}else area.append(paintGrid(boards[0],0));if(mode!=="playing")area.append(el("div",{class:"metric",style:`margin-top:12px;color:${["won","p1-won","p2-won"].includes(mode)?"var(--green)":"var(--danger)"}`},({won:"WON",gameover:"GAME OVER","p1-won":"PLAYER 1 WINS","p2-won":"PLAYER 2 WINS"})[mode]));$("#mineControls").textContent=playerMode==="two"?"P1 WASD + Q/E · P2 ARROWS + ENTER/SHIFT":"LEFT OPEN · RIGHT FLAG"};
+  const reset=()=>{playerMode=$("#minePlayers").value;boards=Array.from({length:playerMode==="two"?2:1},makeBoard);cursors=boards.map(()=>({x:0,y:0}));mode="playing";paint()};
+  const key=e=>{if(playerMode!=="two"||mode!=="playing")return;const k=e.key.length===1?e.key.toLowerCase():e.key;const move=(i,dx,dy)=>{cursors[i].x=Math.max(0,Math.min(boards[i].width-1,cursors[i].x+dx));cursors[i].y=Math.max(0,Math.min(boards[i].height-1,cursors[i].y+dy));paint()};if(k==="w")move(0,0,-1);if(k==="s")move(0,0,1);if(k==="a")move(0,-1,0);if(k==="d")move(0,1,0);if(k==="q")openAt(0,cursors[0].x,cursors[0].y);if(k==="e")flagAt(0,cursors[0].x,cursors[0].y);if(k==="ArrowUp")move(1,0,-1);if(k==="ArrowDown")move(1,0,1);if(k==="ArrowLeft")move(1,-1,0);if(k==="ArrowRight")move(1,1,0);if(k==="Enter")openAt(1,cursors[1].x,cursors[1].y);if(k==="Shift")flagAt(1,cursors[1].x,cursors[1].y);if(["w","a","s","d","q","e","ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Enter","Shift"].includes(k))e.preventDefault()};
+  addEventListener("keydown",key);$(".gameRestart",host).onclick=reset;$("#mineDifficulty").onchange=reset;$("#minePlayers").onchange=reset;
+  window.render_game_to_text=()=>JSON.stringify({game:"minesweeper",mode,playerMode,difficulty:$("#mineDifficulty").value,cursors,boards:boards.map(board=>({size:[board.width,board.height],mines:board.total,state:board.state,visible:board.cells.flat().filter(c=>c.open||c.flag).map(c=>({x:c.x,y:c.y,open:c.open,flag:c.flag,value:c.open?(c.mine?"mine":c.n):null}))}))});
+  window.advanceTime=()=>{};reset();return()=>removeEventListener("keydown",key);
 }
 
 function tttGame(host) {
@@ -1863,6 +1880,186 @@ function pongGame(host) {
   return()=>{clearInput();cancelAnimationFrame(raf);removeEventListener("keydown",keyDown);removeEventListener("keyup",keyUp);removeEventListener("blur",clearInput)};
 }
 
+function addGameOptions(host, { mode = false, difficulty = true, modeId = "gamePlayers", difficultyId = "gameDifficulty" } = {}) {
+  const controls = $(".gameRestart", host).parentElement;
+  controls.classList.add("game-control-row");
+  let modeSelect = null, difficultySelect = null;
+  if (mode) {
+    const field = el("div", { class: "select-field" }, `<label class="select-label" for="${modeId}">Game mode</label><select id="${modeId}" class="select-full"><option value="one">1 PLAYER</option><option value="two">2 PLAYERS</option></select>`);
+    controls.prepend(field); modeSelect = $(`#${modeId}`, field);
+  }
+  if (difficulty) {
+    const field = el("div", { class: "select-field" }, `<label class="select-label" for="${difficultyId}">Difficulty</label><select id="${difficultyId}" class="select-full"><option value="easy">EASY</option><option value="normal" selected>NORMAL</option><option value="hard">HARD</option></select>`);
+    controls.prepend(field); difficultySelect = $(`#${difficultyId}`, field);
+  }
+  return { modeSelect, difficultySelect };
+}
+
+function breakoutGame(host) {
+  const canvas = canvasBase(host, "BREAKOUT", "A/D OR ARROWS · SPACE PAUSE", 700, 440), ctx = canvas.getContext("2d");
+  const { difficultySelect } = addGameOptions(host);
+  const held = new Set();
+  let paddle, ball, bricks, scoreValue, lives, level, mode, raf, last = 0;
+  const settings = () => ({ easy: { rows: 4, speed: 220 }, normal: { rows: 5, speed: 270 }, hard: { rows: 6, speed: 330 } })[difficultySelect.value];
+  const makeBricks = () => Array.from({ length: settings().rows }, (_, row) => Array.from({ length: 10 }, (_, col) => ({ x: 27 + col * 65, y: 45 + row * 25, w: 58, h: 17, alive: true }))).flat();
+  const serve = () => ball = { x: 350, y: 350, vx: (Math.random() < .5 ? -1 : 1) * settings().speed * .65, vy: -settings().speed, r: 7 };
+  const reset = () => { held.clear(); paddle = { x: 295, y: 405, w: 110, h: 12 }; scoreValue = 0; lives = 3; level = 1; mode = "playing"; bricks = makeBricks(); serve(); draw(); };
+  const nextLevel = () => { level++; bricks = makeBricks(); serve(); };
+  const update = dt => {
+    if (mode !== "playing") return;
+    const direction = Number(held.has("ArrowRight") || held.has("d")) - Number(held.has("ArrowLeft") || held.has("a"));
+    paddle.x = Math.max(0, Math.min(700 - paddle.w, paddle.x + direction * 360 * dt));
+    ball.x += ball.vx * dt; ball.y += ball.vy * dt;
+    if (ball.x < ball.r || ball.x > 700 - ball.r) ball.vx *= -1;
+    if (ball.y < ball.r) ball.vy = Math.abs(ball.vy);
+    if (ball.vy > 0 && ball.y + ball.r >= paddle.y && ball.y - ball.r <= paddle.y + paddle.h && ball.x >= paddle.x && ball.x <= paddle.x + paddle.w) {
+      ball.y = paddle.y - ball.r; ball.vy = -Math.abs(ball.vy); ball.vx += (ball.x - (paddle.x + paddle.w / 2)) * 5;
+    }
+    for (const brick of bricks) if (brick.alive && ball.x + ball.r > brick.x && ball.x - ball.r < brick.x + brick.w && ball.y + ball.r > brick.y && ball.y - ball.r < brick.y + brick.h) {
+      brick.alive = false; ball.vy *= -1; scoreValue += 10 * level; score("breakout", scoreValue); break;
+    }
+    if (!bricks.some(brick => brick.alive)) nextLevel();
+    if (ball.y > 455) { lives--; if (lives <= 0) { mode = "gameover"; held.clear(); } else serve(); }
+  };
+  const draw = () => {
+    ctx.fillStyle = "#020704"; ctx.fillRect(0,0,700,440);
+    bricks.forEach((brick, index) => { if (!brick.alive) return; ctx.fillStyle = ["#39ff88","#5ee7ff","#ffd166","#ff5577"][Math.floor(index / 10) % 4]; ctx.fillRect(brick.x,brick.y,brick.w,brick.h); });
+    ctx.fillStyle="#9affbd";ctx.fillRect(paddle.x,paddle.y,paddle.w,paddle.h);ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle="#b7ffd1";ctx.font="15px monospace";ctx.fillText(`SCORE ${scoreValue}  BEST ${Store.data.scores.breakout}  LIVES ${lives}  LEVEL ${level}`,15,24);
+    if(mode!=="playing"){ctx.fillStyle="#000c";ctx.fillRect(0,0,700,440);ctx.fillStyle=mode==="paused"?"#ffd166":"#ff5577";ctx.font="30px monospace";ctx.textAlign="center";ctx.fillText(mode==="paused"?"PAUSED":"GAME OVER",350,230);ctx.textAlign="left"}
+  };
+  const movement = key => ["ArrowLeft","ArrowRight","a","d"].includes(key.length===1?key.toLowerCase():key);
+  const down = event => { const key=event.key.length===1?event.key.toLowerCase():event.key;if(movement(key)){held.add(key);event.preventDefault()}if(event.key===" "&&!event.repeat){mode=mode==="paused"?"playing":mode==="playing"?"paused":mode;held.clear();event.preventDefault()}if(event.key.toLowerCase()==="f")$(".gameFull",host).click() };
+  const up = event => held.delete(event.key.length===1?event.key.toLowerCase():event.key);
+  const loop = time => { const dt=Math.min(.04,(time-(last||time))/1000);last=time;update(dt);draw();raf=requestAnimationFrame(loop) };
+  addEventListener("keydown",down);addEventListener("keyup",up);addEventListener("blur",()=>held.clear());
+  difficultySelect.onchange=reset;$(".gameRestart",host).onclick=reset;$(".gamePause",host).onclick=()=>{if(["playing","paused"].includes(mode)){mode=mode==="playing"?"paused":"playing";held.clear()}};
+  window.render_game_to_text=()=>JSON.stringify({game:"breakout",mode,difficulty:difficultySelect.value,coordinateSystem:"origin top-left",paddle,ball,bricksRemaining:bricks.filter(b=>b.alive).length,score:scoreValue,lives,level});
+  window.advanceTime=ms=>{for(let i=0;i<Math.ceil(ms/16.67);i++)update(1/60);draw()};reset();raf=requestAnimationFrame(loop);canvas.focus();
+  return()=>{held.clear();cancelAnimationFrame(raf);removeEventListener("keydown",down);removeEventListener("keyup",up)};
+}
+
+function connectFourGame(host) {
+  setHTML(host, `<div class="game-status"><span>CONNECT FOUR</span><span id="connectControls">YOU: RED · CPU: YELLOW</span></div><div class="game-wrap"><div class="connect4"></div><div class="metric" id="connectStatus"></div></div><div class="game-control-row"><div class="select-field"><label class="select-label" for="connectPlayers">Game mode</label><select id="connectPlayers" class="select-full"><option value="one">1 PLAYER</option><option value="two">2 PLAYERS</option></select></div><div class="select-field"><label class="select-label" for="connectDifficulty">Difficulty</label><select id="connectDifficulty" class="select-full"><option value="easy">EASY</option><option value="normal" selected>NORMAL</option><option value="hard">HARD</option></select></div><button class="gameRestart">RESTART</button></div>`);
+  let board, current, mode, playerMode="one", cpuTimer=null, selected=3;
+  const linesFrom = (b,r,c) => [[[0,1],[0,-1]],[[1,0],[-1,0]],[[1,1],[-1,-1]],[[1,-1],[-1,1]]].some(pair => 1 + pair.flatMap(([dr,dc]) => { const out=[];let rr=r+dr,cc=c+dc;while(b[rr]?.[cc]===b[r][c]){out.push(1);rr+=dr;cc+=dc}return out }).length >= 4);
+  const valid = b => Array.from({length:7},(_,c)=>c).filter(c=>!b[0][c]);
+  const rowFor = (b,c) => { for(let r=5;r>=0;r--)if(!b[r][c])return r;return -1 };
+  const drop = (c,mark=current,b=board) => { const r=rowFor(b,c);if(r<0)return false;b[r][c]=mark;return {r,c} };
+  const finish = move => { if(linesFrom(board,move.r,move.c)){mode=current==="R"?(playerMode==="one"?"won":"red-won"):(playerMode==="one"?"lost":"yellow-won");if(playerMode==="one"&&mode==="won")score("connect4",Store.data.scores.connect4+1)}else if(!valid(board).length)mode="draw" };
+  const chooseCpu = () => {
+    const choices=valid(board), difficulty=$("#connectDifficulty").value;
+    const win=choices.find(c=>{const b=board.map(r=>[...r]),m=drop(c,"Y",b);return linesFrom(b,m.r,m.c)});
+    const block=choices.find(c=>{const b=board.map(r=>[...r]),m=drop(c,"R",b);return linesFrom(b,m.r,m.c)});
+    if(difficulty==="easy")return choices[Math.floor(Math.random()*choices.length)];
+    if(win!==undefined)return win;if(block!==undefined&&difficulty==="hard")return block;
+    return [...choices].sort((a,b)=>Math.abs(a-3)-Math.abs(b-3))[0];
+  };
+  const cpu = () => { cpuTimer=null;if(mode!=="playing"||playerMode!=="one")return;const move=drop(chooseCpu(),"Y");current="Y";finish(move);if(mode==="playing")current="R";paint() };
+  const play = c => { if(mode!=="playing"||(playerMode==="one"&&current==="Y"))return;const move=drop(c);if(!move)return;finish(move);if(mode==="playing"){current=current==="R"?"Y":"R";if(playerMode==="one")cpuTimer=setTimeout(cpu,180)}paint() };
+  const paint = () => {
+    const grid=$(".connect4",host);setHTML(grid,"");board.flat().forEach((value,index)=>{const b=el("button",{class:value==="R"?"red":value==="Y"?"yellow":"", "aria-label":`Row ${Math.floor(index/7)+1} column ${index%7+1}`});b.onclick=()=>play(index%7);grid.append(b)});
+    $("#connectControls").textContent=playerMode==="two"?"P1 RED · P2 YELLOW":"YOU RED · CPU YELLOW";
+    $("#connectStatus").textContent=mode==="playing"?`${current==="R"?"RED":"YELLOW"} TURN`:{won:"YOU WIN",lost:"CPU WINS","red-won":"RED WINS","yellow-won":"YELLOW WINS",draw:"DRAW"}[mode];
+  };
+  const reset=()=>{if(cpuTimer)clearTimeout(cpuTimer);board=Array.from({length:6},()=>Array(7).fill(""));current="R";mode="playing";selected=3;paint()};
+  const key=event=>{if(event.key==="ArrowLeft"){selected=Math.max(0,selected-1);event.preventDefault()}if(event.key==="ArrowRight"){selected=Math.min(6,selected+1);event.preventDefault()}if(event.key==="Enter"||event.key===" "){play(selected);event.preventDefault()}};
+  addEventListener("keydown",key);$("#connectPlayers").onchange=event=>{playerMode=event.target.value;reset()};$("#connectDifficulty").onchange=reset;$(".gameRestart",host).onclick=reset;
+  window.render_game_to_text=()=>JSON.stringify({game:"connect-four",mode,playerMode,difficulty:$("#connectDifficulty").value,currentPlayer:current,selectedColumn:selected,board});
+  window.advanceTime=()=>{};reset();return()=>{if(cpuTimer)clearTimeout(cpuTimer);removeEventListener("keydown",key)};
+}
+
+function memoryGame(host) {
+  setHTML(host, `<div class="game-status"><span>MEMORY MATCH</span><span id="memoryControls">YOU VS CPU</span></div><div class="game-wrap"><div class="memory-grid"></div><div class="metric" id="memoryStatus"></div></div><div class="game-control-row"><div class="select-field"><label class="select-label" for="memoryPlayers">Game mode</label><select id="memoryPlayers" class="select-full"><option value="one">1 PLAYER</option><option value="two">2 PLAYERS</option></select></div><div class="select-field"><label class="select-label" for="memoryDifficulty">Difficulty</label><select id="memoryDifficulty" class="select-full"><option value="easy">EASY</option><option value="normal" selected>NORMAL</option><option value="hard">HARD</option></select></div><button class="gameRestart">RESTART</button></div>`);
+  const symbols=["◆","●","■","▲","★","✦","⬟","☀"];
+  let cards, open, scores, current, mode, playerMode="one", timer=null, moves=0, known=new Map();
+  const shuffle = values => values.map(value=>({value,sort:Math.random()})).sort((a,b)=>a.sort-b.sort).map(item=>item.value);
+  const finish = () => { if(cards.every(card=>card.matched)){mode=scores[0]===scores[1]?"draw":scores[0]>scores[1]?(playerMode==="one"?"won":"p1-won"):(playerMode==="one"?"lost":"p2-won");if(playerMode==="one"&&mode==="won")score("memory",Math.max(Store.data.scores.memory,1000-moves*10))} };
+  const resolve = () => {
+    const [a,b]=open;if(cards[a].value===cards[b].value){cards[a].matched=cards[b].matched=true;scores[current]++;open=[];finish();paint();if(mode==="playing"&&playerMode==="one"&&current===1)timer=setTimeout(cpu,250)}
+    else timer=setTimeout(()=>{open=[];current=1-current;paint();if(playerMode==="one"&&current===1)timer=setTimeout(cpu,250)},550);
+  };
+  const flip = index => { if(mode!=="playing"||open.length>=2||cards[index].matched||open.includes(index)||(playerMode==="one"&&current===1))return;open.push(index);known.set(index,cards[index].value);moves++;paint();if(open.length===2)resolve() };
+  const cpu = () => {
+    timer=null;if(mode!=="playing"||playerMode!=="one"||current!==1)return;
+    const free=cards.map((card,index)=>!card.matched&&!open.includes(index)?index:null).filter(index=>index!==null);
+    let choice;
+    const difficulty=$("#memoryDifficulty").value, seen=[...known.entries()].filter(([index])=>free.includes(index));
+    if(open.length===1&&difficulty!=="easy")choice=seen.find(([,value])=>value===cards[open[0]].value)?.[0];
+    if(choice===undefined&&difficulty==="hard"){const pairs=new Map;for(const [index,value] of seen){if(pairs.has(value)){choice=pairs.get(value);break}pairs.set(value,index)}}
+    if(choice===undefined)choice=free[Math.floor(Math.random()*free.length)];
+    open.push(choice);known.set(choice,cards[choice].value);moves++;paint();if(open.length===2)resolve();else timer=setTimeout(cpu,350);
+  };
+  const paint = () => {
+    const grid=$(".memory-grid",host);setHTML(grid,"");cards.forEach((card,index)=>{const visible=card.matched||open.includes(index);const b=el("button",{class:visible?"":"hidden-card","aria-label":visible?card.value:"Hidden card"},visible?card.value:"?");b.onclick=()=>flip(index);grid.append(b)});
+    $("#memoryControls").textContent=playerMode==="two"?"PLAYER 1 VS PLAYER 2":"YOU VS CPU";
+    $("#memoryStatus").textContent=mode==="playing"?`P${current+1} TURN · ${scores[0]} — ${scores[1]}`:{won:"YOU WIN",lost:"CPU WINS","p1-won":"PLAYER 1 WINS","p2-won":"PLAYER 2 WINS",draw:"DRAW"}[mode];
+  };
+  const reset=()=>{if(timer)clearTimeout(timer);cards=shuffle([...symbols,...symbols]).map(value=>({value,matched:false}));open=[];scores=[0,0];current=0;mode="playing";moves=0;known.clear();paint()};
+  $("#memoryPlayers").onchange=event=>{playerMode=event.target.value;reset()};$("#memoryDifficulty").onchange=reset;$(".gameRestart",host).onclick=reset;
+  window.render_game_to_text=()=>JSON.stringify({game:"memory",mode,playerMode,difficulty:$("#memoryDifficulty").value,currentPlayer:current,scores,moves,cards:cards.map((card,index)=>({index,visible:card.matched||open.includes(index),matched:card.matched,value:card.matched||open.includes(index)?card.value:null}))});
+  window.advanceTime=()=>{};reset();return()=>{if(timer)clearTimeout(timer)};
+}
+
+function tronGame(host) {
+  const canvas=canvasBase(host,"TRON LIGHT CYCLES","P1 WASD · P2 ARROWS · FIRST TO 5",700,420),ctx=canvas.getContext("2d");
+  const {modeSelect,difficultySelect}=addGameOptions(host,{mode:true,difficulty:true,modeId:"tronPlayers",difficultyId:"tronDifficulty"});
+  const held=new Set();let players,trails,rounds,mode,accumulator=0,raf,last=0,playerMode="one";
+  const cell=10,cols=70,rows=42;
+  const resetRound=()=>{players=[{x:12,y:21,dir:[1,0],next:[1,0],alive:true},{x:57,y:21,dir:[-1,0],next:[-1,0],alive:true}];trails=new Set(players.map(p=>`${p.x},${p.y}`));accumulator=0;mode="playing";draw()};
+  const reset=()=>{held.clear();rounds=[0,0];playerMode=modeSelect.value;resetRound()};
+  const setDirection=(player,dir)=>{const p=players[player];if(dir[0]!==-p.dir[0]||dir[1]!==-p.dir[1])p.next=dir};
+  const cpu=()=>{
+    const p=players[1], options=[[p.dir[0],p.dir[1]],[p.dir[1],-p.dir[0]],[-p.dir[1],p.dir[0]]].filter(([dx,dy])=>{const x=p.x+dx,y=p.y+dy;return x>=0&&x<cols&&y>=0&&y<rows&&!trails.has(`${x},${y}`)});
+    const chance={easy:.35,normal:.7,hard:.95}[difficultySelect.value];if(options.length&&Math.random()<chance)p.next=options[Math.floor(Math.random()*options.length)];
+  };
+  const step=()=>{
+    if(playerMode==="one")cpu();
+    players.forEach(p=>p.dir=p.next);
+    const next=players.map(p=>({x:p.x+p.dir[0],y:p.y+p.dir[1]}));
+    players.forEach((p,index)=>{const n=next[index];if(n.x<0||n.x>=cols||n.y<0||n.y>=rows||trails.has(`${n.x},${n.y}`)||(next[1-index].x===n.x&&next[1-index].y===n.y))p.alive=false});
+    players.forEach((p,index)=>{if(p.alive){p.x=next[index].x;p.y=next[index].y;trails.add(`${p.x},${p.y}`)}});
+    if(!players[0].alive||!players[1].alive){
+      const winner=players[0].alive&&!players[1].alive?0:players[1].alive&&!players[0].alive?1:-1;
+      if(winner>=0)rounds[winner]++;
+      if(Math.max(...rounds)>=5){mode=winner===0?(playerMode==="one"?"won":"p1-won"):(playerMode==="one"?"lost":"p2-won");if(playerMode==="one"&&winner===0)score("tron",Store.data.scores.tron+1);held.clear()}
+      else{mode=winner<0?"round-draw":winner===0?"p1-round":"p2-round";setTimeout(()=>{if(mode.includes("round"))resetRound()},500)}
+    }
+  };
+  const update=dt=>{if(mode!=="playing")return;accumulator+=dt;const interval={easy:.12,normal:.09,hard:.065}[difficultySelect.value];while(accumulator>=interval){accumulator-=interval;step();if(mode!=="playing")break}};
+  const draw=()=>{ctx.fillStyle="#020704";ctx.fillRect(0,0,700,420);ctx.strokeStyle="#082513";for(let x=0;x<700;x+=10){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,420);ctx.stroke()}for(let y=0;y<420;y+=10){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(700,y);ctx.stroke()}for(const point of trails){const [x,y]=point.split(",").map(Number);ctx.fillStyle=x<35?"#39ff88":"#5ee7ff";ctx.fillRect(x*cell,y*cell,cell,cell)}players.forEach((p,i)=>{ctx.fillStyle=i?"#c9f8ff":"#e2ffea";ctx.fillRect(p.x*cell,p.y*cell,cell,cell)});ctx.fillStyle="#b7ffd1";ctx.font="15px monospace";ctx.fillText(`P1 ${rounds[0]}  —  ${rounds[1]} P2`,300,20);if(mode!=="playing"){ctx.fillStyle="#000b";ctx.fillRect(0,0,700,420);ctx.fillStyle="#39ff88";ctx.font="28px monospace";ctx.textAlign="center";ctx.fillText(({paused:"PAUSED",won:"YOU WIN",lost:"CPU WINS","p1-won":"PLAYER 1 WINS","p2-won":"PLAYER 2 WINS","p1-round":"P1 ROUND","p2-round":"P2 ROUND","round-draw":"ROUND DRAW"})[mode]||mode,350,220);ctx.textAlign="left"}};
+  const down=e=>{const k=e.key.length===1?e.key.toLowerCase():e.key;held.add(k);if(k==="w")setDirection(0,[0,-1]);if(k==="s")setDirection(0,[0,1]);if(k==="a")setDirection(0,[-1,0]);if(k==="d")setDirection(0,[1,0]);if(playerMode==="two"){if(k==="ArrowUp")setDirection(1,[0,-1]);if(k==="ArrowDown")setDirection(1,[0,1]);if(k==="ArrowLeft")setDirection(1,[-1,0]);if(k==="ArrowRight")setDirection(1,[1,0])}if(e.key===" "&&!e.repeat){mode=mode==="paused"?"playing":mode==="playing"?"paused":mode;held.clear()}if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key))e.preventDefault();if(e.key.toLowerCase()==="f")$(".gameFull",host).click()};
+  const up=e=>held.delete(e.key.length===1?e.key.toLowerCase():e.key);const loop=t=>{const dt=Math.min(.04,(t-(last||t))/1000);last=t;update(dt);draw();raf=requestAnimationFrame(loop)};
+  addEventListener("keydown",down);addEventListener("keyup",up);addEventListener("blur",()=>held.clear());modeSelect.onchange=reset;difficultySelect.onchange=reset;$(".gameRestart",host).onclick=reset;$(".gamePause",host).onclick=()=>{if(["playing","paused"].includes(mode)){mode=mode==="playing"?"paused":"playing";held.clear()}};
+  window.render_game_to_text=()=>JSON.stringify({game:"tron",mode,playerMode,difficulty:difficultySelect.value,coordinateSystem:"70x42 grid origin top-left",players,rounds,trailCells:trails.size});
+  window.advanceTime=ms=>{for(let i=0;i<Math.ceil(ms/16.67);i++)update(1/60);draw()};reset();raf=requestAnimationFrame(loop);canvas.focus();return()=>{held.clear();cancelAnimationFrame(raf);removeEventListener("keydown",down);removeEventListener("keyup",up)};
+}
+
+function invadersGame(host) {
+  const canvas=canvasBase(host,"SPACE INVADERS","A/D OR ARROWS · SPACE SHOOT",700,440),ctx=canvas.getContext("2d");
+  const {difficultySelect}=addGameOptions(host);const held=new Set();let player,invaders,shots,enemyShots,scoreValue,lives,wave,mode,raf,last=0,enemyDirection=1,enemyTimer=0;
+  const setupWave=()=>{invaders=[];for(let r=0;r<4;r++)for(let c=0;c<9;c++)invaders.push({x:90+c*58,y:55+r*38,w:28,h:20,alive:true});enemyDirection=1};
+  const reset=()=>{held.clear();player={x:335,y:397,w:32,h:18,cooldown:0};shots=[];enemyShots=[];scoreValue=0;lives=3;wave=1;mode="playing";enemyTimer=0;setupWave();draw()};
+  const shoot=()=>{if(player.cooldown<=0&&mode==="playing"){shots.push({x:player.x+16,y:player.y,vy:-420});player.cooldown=.28}};
+  const rectHit=(a,b)=>a.x<b.x+b.w&&a.x+(a.w||3)>b.x&&a.y<b.y+b.h&&a.y+(a.h||8)>b.y;
+  const update=dt=>{
+    if(mode!=="playing")return;const pressure={easy:.7,normal:1,hard:1.35}[difficultySelect.value];
+    player.x=Math.max(0,Math.min(668,player.x+(Number(held.has("ArrowRight")||held.has("d"))-Number(held.has("ArrowLeft")||held.has("a")))*300*dt));player.cooldown-=dt;if(held.has(" "))shoot();
+    shots.forEach(s=>s.y+=s.vy*dt);enemyShots.forEach(s=>s.y+=s.vy*dt);shots=shots.filter(s=>s.y>-10);enemyShots=enemyShots.filter(s=>s.y<450);
+    let edge=false;invaders.filter(i=>i.alive).forEach(i=>{i.x+=enemyDirection*(28+wave*6)*pressure*dt;if(i.x<15||i.x+i.w>685)edge=true});if(edge){enemyDirection*=-1;invaders.filter(i=>i.alive).forEach(i=>i.y+=14)}
+    enemyTimer-=dt;if(enemyTimer<=0){const alive=invaders.filter(i=>i.alive);if(alive.length){const source=alive[Math.floor(Math.random()*alive.length)];enemyShots.push({x:source.x+14,y:source.y+20,vy:170*pressure,w:3,h:9})}enemyTimer=(1.25/pressure)+Math.random()*.5}
+    for(const shot of shots)for(const invader of invaders)if(invader.alive&&rectHit(shot,invader)){invader.alive=false;shot.y=-20;scoreValue+=10*wave;score("invaders",scoreValue);break}
+    for(const shot of enemyShots)if(rectHit(shot,player)){shot.y=500;lives--;if(lives<=0){mode="gameover";held.clear()}}
+    if(invaders.some(i=>i.alive&&i.y+i.h>=player.y)){mode="gameover";held.clear()}
+    if(!invaders.some(i=>i.alive)){wave++;setupWave();shots=[];enemyShots=[]}
+  };
+  const draw=()=>{ctx.fillStyle="#020704";ctx.fillRect(0,0,700,440);ctx.fillStyle="#39ff88";ctx.fillRect(player.x,player.y,player.w,player.h);invaders.forEach((i,index)=>{if(i.alive){ctx.fillStyle=index%2?"#5ee7ff":"#9affbd";ctx.fillRect(i.x,i.y,i.w,i.h)}});ctx.fillStyle="#fff";shots.forEach(s=>ctx.fillRect(s.x,s.y,3,9));ctx.fillStyle="#ff5577";enemyShots.forEach(s=>ctx.fillRect(s.x,s.y,3,9));ctx.fillStyle="#b7ffd1";ctx.font="15px monospace";ctx.fillText(`SCORE ${scoreValue}  BEST ${Store.data.scores.invaders}  LIVES ${lives}  WAVE ${wave}`,15,24);if(mode!=="playing"){ctx.fillStyle="#000c";ctx.fillRect(0,0,700,440);ctx.fillStyle=mode==="paused"?"#ffd166":"#ff5577";ctx.font="30px monospace";ctx.textAlign="center";ctx.fillText(mode==="paused"?"PAUSED":"INVASION COMPLETE",350,220);ctx.textAlign="left"}};
+  const down=e=>{const k=e.key.length===1?e.key.toLowerCase():e.key;if(["a","d","ArrowLeft","ArrowRight"," "].includes(k)){held.add(k);e.preventDefault()}if(e.key===" "&&!e.repeat)shoot();if(e.key.toLowerCase()==="p"){mode=mode==="paused"?"playing":mode==="playing"?"paused":mode;held.clear()}if(e.key.toLowerCase()==="f")$(".gameFull",host).click()};const up=e=>held.delete(e.key.length===1?e.key.toLowerCase():e.key);const loop=t=>{const dt=Math.min(.04,(t-(last||t))/1000);last=t;update(dt);draw();raf=requestAnimationFrame(loop)};
+  addEventListener("keydown",down);addEventListener("keyup",up);addEventListener("blur",()=>held.clear());difficultySelect.onchange=reset;$(".gameRestart",host).onclick=reset;$(".gamePause",host).onclick=()=>{if(["playing","paused"].includes(mode)){mode=mode==="playing"?"paused":"playing";held.clear()}};
+  window.render_game_to_text=()=>JSON.stringify({game:"space-invaders",mode,difficulty:difficultySelect.value,coordinateSystem:"origin top-left",player,invaders:invaders.filter(i=>i.alive),shots,enemyShots,score:scoreValue,lives,wave});
+  window.advanceTime=ms=>{for(let i=0;i<Math.ceil(ms/16.67);i++)update(1/60);draw()};reset();raf=requestAnimationFrame(loop);canvas.focus();return()=>{held.clear();cancelAnimationFrame(raf);removeEventListener("keydown",down);removeEventListener("keyup",up)};
+}
+
 function settingsPage(root) {
   setHTML(root, pageFrame("SETTINGS", "Customize visuals and manage local data.", `<div class="grid"><div class="card"><h3>Matrix display</h3><label class="item"><input id="rainSetting" type="checkbox" ${Store.data.settings.rain ? "checked" : ""} style="width:auto"> Digital rain enabled</label><label>Rain speed<input id="densitySetting" type="range" min=".4" max="2" step=".1" value="${Store.data.settings.density}"></label><label>Accent color<input id="accentSetting" type="color" value="${Store.data.settings.accent}" style="height:45px"></label></div>
     <div class="card"><h3>Data</h3><p class="muted">Data is stored only for this website origin. Reset permanently deletes notes, tasks, history, settings, and scores.</p><button id="resetData" class="danger">RESET ALL LOCAL DATA</button></div>
@@ -1880,7 +2077,8 @@ function resetAll() {
 
 function helpPage(root) {
   setHTML(root, pageFrame("HELP & SHORTCUTS", "Operational notes for the dashboard.", `<div class="grid"><div class="card"><h3>Global controls</h3><div class="list"><div class="item"><kbd>Ctrl/⌘ K</kbd><span>Command palette</span></div><div class="item"><kbd>Esc</kbd><span>Close palette / exit fullscreen</span></div><div class="item"><kbd>F</kbd><span>Fullscreen active canvas game</span></div></div></div>
-    <div class="card"><h3>Game controls</h3><div class="list"><div class="item"><kbd>WASD / Arrows</kbd><span>Snake, 2048, Pong</span></div><div class="item"><kbd>Space</kbd><span>Pause Snake or Pong</span></div><div class="item"><kbd>Right click</kbd><span>Flag Minesweeper cell</span></div></div></div>
+    <div class="card"><h3>Game controls</h3><div class="list"><div class="item"><kbd>WASD / Arrows</kbd><span>Snake, 2048, Pong, Tron, Breakout, Invaders</span></div><div class="item"><kbd>Space / P</kbd><span>Pause or shoot where shown</span></div><div class="item"><kbd>Q / E / Enter / Shift</kbd><span>Two-player Minesweeper open and flag</span></div><div class="item"><kbd>Right click</kbd><span>Flag a Minesweeper cell</span></div></div></div>
+    <div class="card full"><h3>Expanded Arcade</h3><p class="muted">Ten offline games include Breakout, Connect Four, Tron, Space Invaders, and Memory Match. Snake and Minesweeper now include local two-player battle modes alongside Tic-Tac-Toe and Pong.</p></div>
     <div class="card full"><h3>Calendar tools</h3><p class="muted">Browse a Sunday-first monthly calendar, compare dates, add or subtract whole days, and calculate age using local calendar dates.</p></div>
     <div class="card full"><h3>World Clock</h3><p class="muted">Save live IANA time zones and convert a chosen local date and time with daylight-saving gap and overlap detection.</p></div>
     <div class="card full"><h3>Color Tools</h3><p class="muted">Convert HEX, RGB, and HSL; generate palettes; check WCAG contrast; and preview approximate color-vision simulations.</p></div>

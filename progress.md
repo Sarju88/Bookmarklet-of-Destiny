@@ -72,3 +72,16 @@ Original prompt: Build the complete “Bookmarklet of Destiny” plan: a self-co
 - Added Stage 1 Calendar and Date Tools: Sunday-first month navigation, Today highlighting, signed/absolute day differences, whole-day addition/subtraction, and local-date age calculations without new storage or network use.
 - Added Stage 2 World Clock: saved/reorderable IANA clocks, 12/24-hour preference, live dates and UTC offsets, day-difference badges, and DST-aware date/time conversion with gap and overlap detection.
 - Added Stage 3 Color Tools: synchronized HEX/RGB/HSL/alpha editing, seven palette modes, WCAG 2.x contrast results, clipboard output, and four approximate color-vision simulations.
+
+## Stage 6 progress
+
+- Added ten-game registry, searchable horizontal selector, compatible score defaults, and responsive layouts.
+- Added Breakout, Connect Four, Tron, Space Invaders, and Memory Match with deterministic state hooks.
+- Added Snake Battle first-to-five mode and split-board Minesweeper Race keyboard mode.
+- Preserved existing Tic-Tac-Toe and Pong two-player behavior.
+- Focused automated tests pass for all ten games, strict-CSP popup mounting, and existing workflows.
+- Web-game client input bursts verified Breakout, Space Invaders, and Tron state transitions with no console errors.
+- Visually inspected Breakout, Space Invaders, Tron, Connect Four, Memory, Snake Battle, and Minesweeper Race screenshots.
+- Strict-CSP compact popup mounts all five new games.
+- Both full regression suites pass 14/14.
+- Stage 6 implementation is complete; no remaining TODOs.

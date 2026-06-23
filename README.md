@@ -1,6 +1,6 @@
 # Bookmarklet of Destiny
 
-A self-contained Chrome bookmarklet that opens a centered popup dashboard with Matrix rain, productivity tools, calendar and date calculators, page controls, and five games. The popup stays compact so the current browser tab remains visible behind it.
+A self-contained Chrome bookmarklet that opens a centered popup dashboard with Matrix rain, productivity tools, calendar and date calculators, page controls, and ten games. The popup stays compact so the current browser tab remains visible behind it.
 
 ## Included Tools
 
@@ -14,7 +14,8 @@ A self-contained Chrome bookmarklet that opens a centered popup dashboard with M
 - Regex testing, secure text/file hashes, JWT inspection, safe Markdown, and an isolated HTML/CSS scratchpad
 - Unit and USD/INR conversion
 - Text, random, QR, drawing, and page-control tools
-- Snake, 2048, Minesweeper, Tic-Tac-Toe, and Pong
+- Snake Battle, 2048, Minesweeper Race, Tic-Tac-Toe, Pong, Breakout, Connect Four, Tron, Space Invaders, and Memory Match
+- Local two-player modes in Snake, Minesweeper, Tic-Tac-Toe, Pong, Connect Four, Tron, and Memory
 
 ## Install
 

@@ -655,15 +655,19 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     await panel.locator('[data-game="2048"]').click();
     await panel.keyboard.press("ArrowLeft");
     assert.match(await panel.evaluate(() => window.render_game_to_text()), /"game":"2048"/);
+    for (const [id, expected] of [["breakout","breakout"],["connect4","connect-four"],["tron","tron"],["invaders","space-invaders"],["memory","memory"]]) {
+      await panel.locator(`[data-game="${id}"]`).click();
+      assert.equal(JSON.parse(await panel.evaluate(() => window.render_game_to_text())).game, expected);
+    }
     await panel.locator('[data-game="mines"]').click();
     assert.match(await panel.locator("label[for=mineDifficulty]").textContent(), /Difficulty/i);
     const mineTrigger = panel.locator("#mineDifficulty + .destiny-select .destiny-select-trigger");
     await mineTrigger.focus();
     await mineTrigger.press("End");
     await mineTrigger.press("Enter");
-    assert.equal(await panel.locator("#mineDifficulty").inputValue(), "20,14,50");
+    assert.equal(await panel.locator("#mineDifficulty").inputValue(), "hard");
     assert.equal(await panel.locator(".mine-grid button").count(), 280);
-    await panel.locator("#mineDifficulty").selectOption("9,9,10");
+    await panel.locator("#mineDifficulty").selectOption("easy");
     assert.equal(await panel.locator(".mine-grid button").count(), 81);
     await panel.locator(".mine-grid button").first().click();
     assert.match(await panel.evaluate(() => window.render_game_to_text()), /minesweeper/);
@@ -820,6 +824,102 @@ test("bookmarklet opens its popup from local file pages", async () => {
   });
 });
 
+test("expanded arcade mounts ten games and exercises new multiplayer controls", async () => {
+  await withBrowser(async ({ page }) => {
+    await mkdir(shots, { recursive: true });
+    await page.goto(`${base}/preview.html?page=games&game=breakout`);
+    assert.equal(await page.locator("[data-game]").count(), 10);
+    const gameState = () => page.evaluate(() => JSON.parse(window.render_game_to_text()));
+
+    let state = await gameState();
+    assert.equal(state.game, "breakout");
+    const paddleStart = state.paddle.x;
+    await page.keyboard.down("ArrowRight");
+    await page.evaluate(() => window.advanceTime(300));
+    await page.keyboard.up("ArrowRight");
+    assert.ok((await gameState()).paddle.x > paddleStart);
+    await page.locator(".gamePause").click();
+    assert.equal((await gameState()).mode, "paused");
+    await page.locator("#gameDifficulty").selectOption("hard");
+    assert.equal((await gameState()).difficulty, "hard");
+    await capture(page, `${shots}/breakout.png`);
+
+    await page.locator('[data-game="connect4"]').click();
+    assert.equal((await gameState()).game, "connect-four");
+    await page.locator("#connectPlayers").selectOption("two");
+    for (const column of [0,1,0,1,0,1,0]) await page.locator(".connect4 button").nth(column).click();
+    state = await gameState();
+    assert.equal(state.mode, "red-won");
+    assert.equal(state.playerMode, "two");
+    await capture(page, `${shots}/connect-four.png`);
+
+    await page.locator('[data-game="tron"]').click();
+    await page.locator("#tronPlayers").selectOption("two");
+    await page.keyboard.press("w");
+    await page.keyboard.press("ArrowDown");
+    await page.evaluate(() => window.advanceTime(500));
+    state = await gameState();
+    assert.equal(state.game, "tron");
+    assert.equal(state.playerMode, "two");
+    assert.ok(state.trailCells > 2);
+    await page.dispatchEvent("body", "blur");
+    await capture(page, `${shots}/tron.png`);
+
+    await page.locator('[data-game="invaders"]').click();
+    const invaderStart = (await gameState()).player.x;
+    await page.keyboard.down("ArrowLeft");
+    await page.evaluate(() => window.advanceTime(200));
+    await page.keyboard.up("ArrowLeft");
+    await page.keyboard.press("Space");
+    await page.evaluate(() => window.advanceTime(50));
+    state = await gameState();
+    assert.equal(state.game, "space-invaders");
+    assert.ok(state.player.x < invaderStart);
+    assert.ok(state.shots.length >= 1);
+    await capture(page, `${shots}/space-invaders.png`);
+
+    await page.locator('[data-game="memory"]').click();
+    await page.locator("#memoryPlayers").selectOption("two");
+    await page.locator(".memory-grid button").nth(0).click();
+    await page.locator(".memory-grid button").nth(1).click();
+    state = await gameState();
+    assert.equal(state.game, "memory");
+    assert.equal(state.playerMode, "two");
+    assert.equal(state.cards.filter(card => card.visible).length, 2);
+    await capture(page, `${shots}/memory.png`);
+
+    await page.locator('[data-game="snake"]').click();
+    await page.locator("#snakePlayers").selectOption("two");
+    await page.keyboard.press("w");
+    await page.keyboard.press("ArrowDown");
+    await page.evaluate(() => window.advanceTime(250));
+    state = await gameState();
+    assert.equal(state.playerMode, "two");
+    assert.equal(state.snakes.length, 2);
+    assert.deepEqual(state.rounds, [0,0]);
+    await capture(page, `${shots}/snake-battle.png`);
+
+    await page.locator('[data-game="mines"]').click();
+    await page.locator("#minePlayers").selectOption("two");
+    assert.equal(await page.locator(".mine-player").count(), 2);
+    await page.keyboard.press("d");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("e");
+    await page.keyboard.press("Shift");
+    state = await gameState();
+    assert.equal(state.playerMode, "two");
+    assert.equal(state.cursors[0].x, 1);
+    assert.equal(state.cursors[1].x, 1);
+    assert.equal(state.boards[0].visible.some(cell => cell.flag), true);
+    assert.equal(state.boards[1].visible.some(cell => cell.flag), true);
+    await capture(page, `${shots}/minesweeper-race.png`);
+
+    await page.fill("#gameSearch", "pong");
+    assert.equal(await page.locator("[data-game]:not(.hidden)").count(), 1);
+    assert.match(await page.locator("[data-game]:not(.hidden)").textContent(), /PONG/);
+  });
+});
+
 test("compact dashboard scrolls while chrome and sidebar remain fixed", async () => {
   const browser = await chromium.launch({ headless: true });
   try {
@@ -848,9 +948,11 @@ test("compact dashboard scrolls while chrome and sidebar remain fixed", async ()
   }
 });
 
-test("Minesweeper and Tic-Tac-Toe mount and respond", async () => {
+test("legacy Minesweeper and Tic-Tac-Toe workflows still respond", async () => {
   await withBrowser(async ({ page }) => {
     await page.goto(`${base}/preview.html?page=games&game=mines`);
+    assert.equal(await page.locator(".mine-grid button").count(), 192);
+    await page.locator("#mineDifficulty").selectOption("easy");
     assert.equal(await page.locator(".mine-grid button").count(), 81);
     await page.locator(".mine-grid button").first().click();
     assert.match(await page.evaluate(() => window.render_game_to_text()), /minesweeper/);
