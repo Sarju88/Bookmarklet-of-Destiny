@@ -21,26 +21,19 @@ A self-contained Chrome bookmarklet that opens a centered popup dashboard with M
 
 ## Install
 
-```sh
-npm install
-npm run build
-npm run dev
-```
-
-Open <http://127.0.0.1:4173>, then:
+Open the [Bookmarklet of Destiny installation page](https://sarju88.github.io/Bookmarklet-of-Destiny/), then:
 
 1. Drag **Launch Destiny** to Chrome’s bookmarks bar.
 2. Open a normal website such as Google Search or Wikipedia.
 3. Click **Launch Destiny** in the bookmarks bar.
 
-It is designed to run on most ordinary websites. Chrome itself blocks bookmarklets on New Tab, `chrome://`, extension pages, and the Chrome Web Store; those are the expected exceptions. Use **Test Launch** on the installer to verify the resizable popup.
+That is all—nothing needs to be downloaded or installed. It works on most ordinary websites. Chrome blocks bookmarklets on New Tab, `chrome://`, extension pages, and the Chrome Web Store; those are the expected exceptions. Use **Test Launch** on the installation page to verify the popup.
 
 ## Development
 
 - `preview.html` is the complete development preview.
 - `index.html` is the generated installation page and GitHub Pages entry point.
 - `src/app.js` and `src/styles.css` are the editable sources.
-- `npm test` rebuilds and runs artifact, Chrome, popup, persistence, utility, and game smoke tests.
 
 Saved notes, tasks, settings, history, and scores use versioned `localStorage`. Because bookmarklets run in the current page’s origin, saved data is separate for each website.
 
