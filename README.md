@@ -4,7 +4,9 @@ A self-contained Chrome bookmarklet that opens a centered popup dashboard with M
 
 ## Included Tools
 
-- Scientific calculator, notes, todos, timers, alarms, and Pomodoro
+- Scientific calculator, multi-note Markdown workspace, enhanced tasks, timers, alarms, and Pomodoro
+- Searchable notes with tags, pins, archive/trash, safe preview, and JSON backup/import
+- Prioritized tasks with optional due dates and status filters
 - Sunday-first monthly calendar
 - Days-between, add/subtract days, and age calculators
 - Saved world clocks and daylight-saving-aware time-zone conversion

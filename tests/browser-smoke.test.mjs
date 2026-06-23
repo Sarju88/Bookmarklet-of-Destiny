@@ -82,15 +82,20 @@ test("install page, dashboard utilities, and local persistence work", async () =
     assert.equal(await page.locator("#calcResult").textContent(), "5");
 
     await page.click('[data-page="organizer"]');
-    await page.fill("#notes", "Saved by browser smoke test");
+    await page.click("#newNote");
+    await page.fill("#noteTitle", "Smoke Test Note");
+    await page.fill("#noteBody", "# Saved by browser smoke test");
     await page.waitForTimeout(500);
+    await page.click('[data-organizer-view="tasks"]');
     await page.fill("#todoInput", "Verify local task");
     await page.click("#todoAdd");
-    assert.equal(await page.locator("#todoList .item").count(), 1);
+    assert.equal(await page.locator("#todoList .task-item").count(), 1);
     await page.reload();
     await page.click('[data-page="organizer"]');
-    assert.equal(await page.inputValue("#notes"), "Saved by browser smoke test");
-    assert.match(await page.locator("#todoList").textContent(), /Verify local task/);
+    assert.equal(await page.inputValue("#noteTitle"), "Smoke Test Note");
+    assert.equal(await page.inputValue("#noteBody"), "# Saved by browser smoke test");
+    await page.click('[data-organizer-view="tasks"]');
+    assert.equal(await page.locator(".task-text").inputValue(), "Verify local task");
 
     await page.click('[data-page="qr"]');
     assert.equal(await page.locator("#qrOutput img").count(), 1);
@@ -137,6 +142,133 @@ test("install page, dashboard utilities, and local persistence work", async () =
     await page.click('[data-page="convert"]');
     await page.locator("#convType").selectOption("currency");
     assert.equal(await page.locator("#usdInrRate").inputValue(), "100");
+  });
+});
+
+test("enhanced organizer migrates, manages notes and tasks, and imports backups", async () => {
+  await withBrowser(async ({ page }) => {
+    await page.goto(`${base}/preview.html`);
+    await page.evaluate(() => localStorage.setItem("bookmarklet-of-destiny:v1", JSON.stringify({
+      version: 1,
+      notes: "# Legacy note\n<script>window.__noteRan=1</script>",
+      todos: [{ text: "Legacy task", done: false }],
+      settings: {},
+      scores: {}
+    })));
+    await page.reload();
+    await page.click('[data-page="organizer"]');
+    const organizerState = () => page.evaluate(() => JSON.parse(window.render_organizer_to_text()));
+    let state = await organizerState();
+    assert.equal(state.notes.length, 1);
+    assert.equal(state.notes[0].title, "Imported Note");
+    assert.equal(state.todos[0].priority, "normal");
+    assert.ok(state.todos[0].id);
+    assert.equal(await page.evaluate(() => window.__noteRan), undefined);
+    assert.match(await page.locator("#notePreview").textContent(), /<script>window.__noteRan=1<\/script>/);
+    await page.reload();
+    await page.click('[data-page="organizer"]');
+    assert.equal((await organizerState()).notes.length, 1);
+
+    await page.fill("#newTagName", "Important");
+    await page.fill("#newTagColor", "#ff5577");
+    await page.click("#addTag");
+    await page.click("#newNote");
+    await page.fill("#noteTitle", "Project Plan");
+    await page.fill("#noteBody", "## Tasks\n\n- Build\n- Test");
+    await page.locator(".tag-toggle span").click();
+    await page.waitForTimeout(450);
+    await page.click("#pinNote");
+    state = await organizerState();
+    assert.equal(state.notes.length, 2);
+    assert.equal(state.notes.find(note => note.title === "Project Plan").pinned, true);
+    assert.equal(state.tags.length, 1);
+    assert.equal(await page.locator("#notePreview h2").textContent(), "Tasks");
+    await capture(page, `${shots}/enhanced-notes.png`);
+    await page.click("#duplicateNote");
+    assert.match(await page.inputValue("#noteTitle"), /Copy$/);
+    await page.click("#archiveNote");
+    assert.equal((await organizerState()).notes.find(note => note.title === "Project Plan Copy").archived, true);
+    await page.click('[data-organizer-view="archive"]');
+    assert.equal(await page.inputValue("#noteTitle"), "Project Plan Copy");
+    await page.click("#archiveNote");
+    await page.click('[data-organizer-view="notes"]');
+    await page.fill("#noteSearch", "Project Plan Copy");
+    assert.equal(await page.locator(".note-list-item").count(), 1);
+    await page.click("#trashNote");
+    await page.fill("#noteSearch", "");
+    await page.click('[data-organizer-view="trash"]');
+    assert.match(await page.locator("#noteList").textContent(), /Project Plan Copy/);
+    await page.click("#restoreNote");
+
+    await page.click('[data-organizer-view="tasks"]');
+    await page.fill("#todoInput", "High priority today");
+    await page.selectOption("#todoPriority", "high");
+    const today = await page.evaluate(() => {
+      const date = new Date();
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    });
+    await page.fill("#todoDue", today);
+    await page.click("#todoAdd");
+    await page.click('[data-task-filter="today"]');
+    const addedTask = page.locator(".task-item").first();
+    assert.equal(await addedTask.locator(".task-text").inputValue(), "High priority today");
+    assert.match(await addedTask.getAttribute("class"), /priority-high/);
+    await capture(page, `${shots}/enhanced-tasks.png`);
+    await addedTask.locator("[data-task-done]").check();
+    await page.click('[data-task-filter="completed"]');
+    assert.equal(await page.locator(".task-text").first().inputValue(), "High priority today");
+    await page.click("#clearCompleted");
+    assert.equal(await page.locator(".task-text").count(), 0);
+
+    const downloadPromise = page.waitForEvent("download");
+    await page.click("#exportOrganizer");
+    const download = await downloadPromise;
+    assert.equal(download.suggestedFilename(), "bookmarklet-of-destiny-organizer.json");
+
+    const backup = {
+      format: "bookmarklet-of-destiny-organizer", version: 1,
+      notes: [{ id: "import-note", title: "Imported Backup", body: "[unsafe](javascript:alert(1))", tagIds: ["import-tag"], pinned: false, archived: false, trashed: false, createdAt: 1, updatedAt: 2 }],
+      tags: [{ id: "import-tag", name: "Backup", color: "#39ff88" }],
+      todos: [{ id: "import-task", text: "Imported task", done: false, priority: "low", dueDate: "", createdAt: 1, updatedAt: 2 }]
+    };
+    await page.setInputFiles("#importOrganizerFile", { name: "backup.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(backup)) });
+    await page.click("#importMerge");
+    await page.waitForFunction(() => document.querySelector("#importStatus")?.textContent.startsWith("MERGED"));
+    assert.match(await page.locator("#importStatus").textContent(), /MERGED 1 NOTES, 1 TAGS, 1 TASKS/);
+    await page.click('[data-organizer-view="notes"]');
+    await page.fill("#noteSearch", "Imported Backup");
+    assert.equal(await page.locator(".note-list-item").count(), 1);
+    await page.locator(".note-list-item").click();
+    assert.equal(await page.locator('#notePreview a[href^="javascript:"]').count(), 0);
+
+    await page.setInputFiles("#importOrganizerFile", { name: "bad.json", mimeType: "application/json", buffer: Buffer.from('{"version":9}') });
+    await page.click("#importMerge");
+    await page.waitForFunction(() => document.querySelector("#importStatus")?.textContent.startsWith("IMPORT ERROR"));
+    assert.match(await page.locator("#importStatus").textContent(), /IMPORT ERROR/);
+
+    const replacement = {
+      format: "bookmarklet-of-destiny-organizer", version: 1,
+      notes: [{ id: "only-note", title: "Replacement Note", body: "Clean", tagIds: [], pinned: false, archived: false, trashed: false, createdAt: 1, updatedAt: 2 }],
+      tags: [], todos: []
+    };
+    await page.setInputFiles("#importOrganizerFile", { name: "replace.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(replacement)) });
+    page.once("dialog", dialog => dialog.accept());
+    await page.click("#importReplace");
+    await page.waitForFunction(() => document.querySelector("#importStatus")?.textContent.startsWith("REPLACED"));
+    state = await organizerState();
+    assert.equal(state.notes.length, 1);
+    assert.equal(state.notes[0].title, "Replacement Note");
+    assert.equal(state.todos.length, 0);
+
+    await page.click('[data-organizer-view="notes"]');
+    await page.fill("#noteSearch", "");
+    await page.click("#trashNote");
+    await page.click('[data-organizer-view="trash"]');
+    page.once("dialog", dialog => dialog.accept());
+    await page.click("#deleteNoteForever");
+    assert.equal((await organizerState()).notes.length, 0);
+    await page.click('[data-page="home"]');
+    assert.equal(await page.evaluate(() => typeof window.render_organizer_to_text), "undefined");
   });
 });
 
@@ -507,6 +639,11 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     await panel.locator("#runRegex").click();
     assert.equal(await panel.locator(".developer-match").count(), 2);
     await capture(panel, `${shots}/developer-popup.png`);
+    await panel.locator('[data-page="organizer"]').click();
+    await panel.locator("#newNote").click();
+    await panel.locator("#noteTitle").fill("Popup note");
+    await panel.locator("#noteBody").fill("# Compact preview");
+    await capture(panel, `${shots}/organizer-popup.png`);
     await panel.locator('[data-page="calculator"]').click();
     await panel.locator("#calcInput").fill("6 * 7");
     await panel.locator("#calcInput").press("Enter");

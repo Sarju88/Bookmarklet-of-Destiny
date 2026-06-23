@@ -23,7 +23,7 @@ const insertHTML = (node, position, value) => node.insertAdjacentHTML(position, 
 const PAGES = [
   ["home", "⌂", "Command Center"],
   ["calculator", "∑", "Calculator"],
-  ["organizer", "✓", "Notes & Todos"],
+  ["organizer", "✓", "Notes & Tasks"],
   ["time", "◷", "Time Systems"],
   ["calendar", "▣", "Calendar"],
   ["worldclock", "◉", "World Clock"],
@@ -43,6 +43,9 @@ const PAGES = [
 const defaults = {
   version: 1,
   notes: "",
+  notesV2: [],
+  noteTags: [],
+  organizerMigrated: false,
   todos: [],
   calcHistory: [],
   scores: { snake: 0, "2048": 0, mines: 0, ttt: 0, pong: 0 },
@@ -62,7 +65,43 @@ const Store = {
       const parsed = JSON.parse(localStorage.getItem(APP_KEY) || "null");
       if (parsed?.version === 1) this.data = { ...structuredClone(defaults), ...parsed, settings: { ...defaults.settings, ...parsed.settings }, scores: { ...defaults.scores, ...parsed.scores } };
     } catch {}
+    this.migrateOrganizer();
     return this.data;
+  },
+  migrateOrganizer() {
+    const now = Date.now();
+    if (!Array.isArray(this.data.notesV2)) this.data.notesV2 = [];
+    if (!Array.isArray(this.data.noteTags)) this.data.noteTags = [];
+    if (!Array.isArray(this.data.todos)) this.data.todos = [];
+    let changed = !this.data.todos.every(todo => todo.id && todo.priority && "dueDate" in todo && todo.createdAt && todo.updatedAt);
+    if (!this.data.organizerMigrated) {
+      if (String(this.data.notes || "").trim() && !this.data.notesV2.length) {
+        this.data.notesV2.push({
+          id: crypto.randomUUID(), title: "Imported Note", body: String(this.data.notes),
+          tagIds: [], pinned: false, archived: false, trashed: false,
+          createdAt: now, updatedAt: now
+        });
+      }
+      this.data.organizerMigrated = true;
+      changed = true;
+    }
+    this.data.notesV2 = this.data.notesV2.map(note => ({
+      id: note.id || crypto.randomUUID(), title: String(note.title || "Untitled Note").slice(0, 160),
+      body: String(note.body || ""), tagIds: Array.isArray(note.tagIds) ? note.tagIds.map(String) : [],
+      pinned: !!note.pinned, archived: !!note.archived, trashed: !!note.trashed,
+      createdAt: Number(note.createdAt) || now, updatedAt: Number(note.updatedAt) || now
+    }));
+    this.data.noteTags = this.data.noteTags.map(tag => ({
+      id: tag.id || crypto.randomUUID(), name: String(tag.name || "Tag").slice(0, 40),
+      color: /^#[0-9a-f]{6}$/i.test(tag.color) ? tag.color : "#39ff88"
+    }));
+    this.data.todos = this.data.todos.map(todo => ({
+      id: todo.id || crypto.randomUUID(), text: String(todo.text || "").slice(0, 500),
+      done: !!todo.done, priority: ["low", "normal", "high"].includes(todo.priority) ? todo.priority : "normal",
+      dueDate: /^\d{4}-\d{2}-\d{2}$/.test(todo.dueDate || "") ? todo.dueDate : "",
+      createdAt: Number(todo.createdAt) || now, updatedAt: Number(todo.updatedAt) || now
+    })).filter(todo => todo.text);
+    if (changed) this.save();
   },
   save() {
     try { localStorage.setItem(APP_KEY, JSON.stringify(this.data)); } catch {}
@@ -637,30 +676,218 @@ function calculatorPage(root) {
 }
 
 function organizerPage(root) {
-  setHTML(root, pageFrame("NOTES & TODOS", "Saved automatically in this website’s local storage.", `<div class="grid"><div class="card"><h3>Notes</h3><textarea id="notes" placeholder="Write anything...">${escapeHtml(Store.data.notes)}</textarea><div class="muted tiny" id="noteStatus">AUTO-SAVE READY</div></div>
-    <div class="card"><h3>Tasks</h3><div class="row"><input id="todoInput" placeholder="Add a task"><button id="todoAdd">ADD</button></div><div class="list" id="todoList" style="margin-top:10px"></div></div></div>`));
-  let saveDelay;
-  $("#notes").oninput = e => {
-    $("#noteStatus").textContent = "SAVING...";
-    clearTimeout(saveDelay); saveDelay = setTimeout(() => { Store.update("notes", e.target.value); $("#noteStatus").textContent = "SAVED"; }, 350);
+  setHTML(root, pageFrame("NOTES & TASKS", "A local Markdown workspace saved automatically for this website.", `<div class="organizer-tabs" role="tablist" aria-label="Organizer views">
+    <button data-organizer-view="notes" class="active">NOTES</button><button data-organizer-view="archive">ARCHIVE</button><button data-organizer-view="trash">TRASH</button><button data-organizer-view="tasks">TASKS</button>
+    </div><section id="organizerNotes"><div class="organizer-layout">
+      <aside class="organizer-sidebar card"><div class="row"><button id="newNote" class="primary grow">+ NEW NOTE</button></div>
+        <input id="noteSearch" placeholder="Search notes..." aria-label="Search notes">
+        <div class="split compact"><div class="select-field"><label class="select-label" for="noteSort">Sort</label><select id="noteSort" class="select-full"><option value="updated">Recently updated</option><option value="created">Recently created</option><option value="title">Title</option></select></div>
+        <div class="select-field"><label class="select-label" for="noteTagFilter">Tag</label><select id="noteTagFilter" class="select-full"><option value="">All tags</option></select></div></div>
+        <div class="note-list" id="noteList"></div>
+        <div class="tag-manager"><h3>Tags</h3><div class="row"><input id="newTagName" maxlength="40" placeholder="Tag name"><input id="newTagColor" type="color" value="#39ff88" aria-label="Tag color"><button id="addTag">ADD</button></div><div id="tagList" class="tag-list"></div></div>
+      </aside>
+      <div class="organizer-editor card" id="noteEditor"><div class="organizer-empty">CREATE OR SELECT A NOTE</div></div>
+    </div></section>
+    <section id="organizerTasks" class="hidden"><div class="grid">
+      <div class="card full"><div class="task-add-grid"><input id="todoInput" placeholder="Add a task"><div class="select-field"><label class="select-label" for="todoPriority">Priority</label><select id="todoPriority" class="select-full"><option value="low">Low</option><option value="normal" selected>Normal</option><option value="high">High</option></select></div><label>Due date<input id="todoDue" type="date"></label><button id="todoAdd" class="primary">ADD TASK</button></div></div>
+      <div class="card full"><div class="row wrap task-toolbar"><div class="tabs" id="taskFilters">${["all","active","completed","overdue","today","upcoming"].map((filter, index) => `<button data-task-filter="${filter}" class="${index ? "" : "active"}">${filter.toUpperCase()}</button>`).join("")}</div><button id="clearCompleted" class="danger">CLEAR COMPLETED</button></div><div id="todoList" class="task-list"></div></div>
+    </div></section>
+    <section class="card organizer-backup"><h3>Backup and transfer</h3><div class="row wrap"><button id="exportOrganizer">EXPORT JSON</button><input id="importOrganizerFile" type="file" accept="application/json,.json" aria-label="Organizer backup file"><button id="importMerge">IMPORT + MERGE</button><button id="importReplace" class="danger">IMPORT + REPLACE</button></div><div class="muted tiny" id="importStatus">IMPORTS CHANGE NOTES, TAGS, AND TASKS ONLY.</div></section>`));
+
+  let view = "notes", selectedId = null, taskFilter = "all", saveDelay;
+  const now = () => Date.now();
+  const noteById = id => Store.data.notesV2.find(note => note.id === id);
+  const currentNotes = () => Store.data.notesV2.filter(note => view === "trash" ? note.trashed : view === "archive" ? note.archived && !note.trashed : !note.archived && !note.trashed);
+  const displayTime = value => new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+  const localIsoDate = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const save = () => Store.save();
+  const createNote = (seed = {}) => {
+    const timestamp = now();
+    const note = {
+      id: crypto.randomUUID(), title: seed.title || "Untitled Note", body: seed.body || "",
+      tagIds: [...(seed.tagIds || [])], pinned: !!seed.pinned, archived: false, trashed: false,
+      createdAt: timestamp, updatedAt: timestamp
+    };
+    Store.data.notesV2.unshift(note); selectedId = note.id; view = "notes"; save(); paintAll();
+    setTimeout(() => $("#noteTitle")?.select(), 0);
   };
-  state.cleanup.push(() => clearTimeout(saveDelay));
-  const paint = () => {
-    setHTML($("#todoList"), "");
-    Store.data.todos.forEach((todo, index) => {
-      const row = el("div", { class: "item" });
-      setHTML(row, `<input type="checkbox" aria-label="Complete task" ${todo.done ? "checked" : ""} style="width:auto"><span class="grow ${todo.done ? "done" : ""}">${escapeHtml(todo.text)}</span><button aria-label="Delete task">×</button>`);
-      $("input", row).onchange = e => { todo.done = e.target.checked; Store.save(); paint(); };
-      $("button", row).onclick = () => { Store.data.todos.splice(index, 1); Store.save(); paint(); };
-      $("#todoList").append(row);
+  const filteredNotes = () => {
+    const query = $("#noteSearch").value.trim().toLowerCase(), tag = $("#noteTagFilter").value, sort = $("#noteSort").value;
+    return currentNotes().filter(note => (!query || `${note.title}\n${note.body}`.toLowerCase().includes(query)) && (!tag || note.tagIds.includes(tag))).sort((a, b) => {
+      if (a.pinned !== b.pinned) return Number(b.pinned) - Number(a.pinned);
+      if (sort === "title") return a.title.localeCompare(b.title);
+      return sort === "created" ? b.createdAt - a.createdAt : b.updatedAt - a.updatedAt;
     });
   };
-  const add = () => {
-    const input = $("#todoInput"), text = input.value.trim();
-    if (!text) return;
-    Store.data.todos.push({ text, done: false }); Store.save(); input.value = ""; paint();
+  const paintTagOptions = () => {
+    const current = $("#noteTagFilter").value;
+    setHTML($("#noteTagFilter"), `<option value="">All tags</option>${Store.data.noteTags.map(tag => `<option value="${escapeHtml(tag.id)}">${escapeHtml(tag.name)}</option>`).join("")}`);
+    $("#noteTagFilter").value = Store.data.noteTags.some(tag => tag.id === current) ? current : "";
+    setHTML($("#tagList"), Store.data.noteTags.map(tag => `<span class="tag-chip" style="--tag:${tag.color}"><i></i>${escapeHtml(tag.name)}<button data-delete-tag="${tag.id}" aria-label="Delete ${escapeHtml(tag.name)} tag">×</button></span>`).join("") || `<span class="muted tiny">NO TAGS YET</span>`);
+    $$("[data-delete-tag]", root).forEach(button => button.onclick = () => {
+      const id = button.dataset.deleteTag;
+      Store.data.noteTags = Store.data.noteTags.filter(tag => tag.id !== id);
+      Store.data.notesV2.forEach(note => note.tagIds = note.tagIds.filter(tagId => tagId !== id));
+      save(); paintAll();
+    });
   };
-  $("#todoAdd").onclick = add; $("#todoInput").onkeydown = e => { if (e.key === "Enter") add(); }; paint();
+  const paintList = () => {
+    const notes = filteredNotes();
+    if (!notes.some(note => note.id === selectedId)) selectedId = notes[0]?.id || null;
+    setHTML($("#noteList"), notes.map(note => {
+      const tags = note.tagIds.map(id => Store.data.noteTags.find(tag => tag.id === id)).filter(Boolean);
+      return `<button class="note-list-item ${note.id === selectedId ? "active" : ""}" data-note-id="${note.id}"><span><b>${note.pinned ? "◆ " : ""}${escapeHtml(note.title || "Untitled Note")}</b><small>${escapeHtml(note.body.replace(/\s+/g, " ").slice(0, 75) || "Empty note")}</small></span><span class="note-list-meta">${tags.map(tag => `<i style="background:${tag.color}" title="${escapeHtml(tag.name)}"></i>`).join("")}<time>${displayTime(note.updatedAt)}</time></span></button>`;
+    }).join("") || `<div class="organizer-empty">NO ${view.toUpperCase()} NOTES</div>`);
+    $$("[data-note-id]", root).forEach(button => button.onclick = () => { selectedId = button.dataset.noteId; paintList(); paintEditor(); });
+  };
+  const paintEditor = () => {
+    const host = $("#noteEditor"), note = noteById(selectedId);
+    if (!note) { setHTML(host, `<div class="organizer-empty">CREATE OR SELECT A NOTE</div>`); return; }
+    const trashed = note.trashed, archived = note.archived && !trashed;
+    setHTML(host, `<div class="note-editor-head"><input id="noteTitle" maxlength="160" value="${escapeHtml(note.title)}" aria-label="Note title"><div class="row wrap">
+      ${trashed ? `<button id="restoreNote">RESTORE</button><button id="deleteNoteForever" class="danger">DELETE FOREVER</button>` : `<button id="pinNote">${note.pinned ? "UNPIN" : "PIN"}</button><button id="duplicateNote">DUPLICATE</button><button id="archiveNote">${archived ? "UNARCHIVE" : "ARCHIVE"}</button><button id="trashNote" class="danger">TRASH</button>`}
+      </div></div><div class="note-tags">${Store.data.noteTags.map(tag => `<label class="tag-toggle" style="--tag:${tag.color}"><input type="checkbox" data-note-tag="${tag.id}" ${note.tagIds.includes(tag.id) ? "checked" : ""}><span>${escapeHtml(tag.name)}</span></label>`).join("") || `<span class="muted tiny">ADD TAGS FROM THE SIDEBAR</span>`}</div>
+      <div class="note-editor-grid"><div><h3>Markdown</h3><textarea id="noteBody" class="note-body" placeholder="Write Markdown...">${escapeHtml(note.body)}</textarea></div><div><h3>Preview</h3><div id="notePreview" class="developer-render note-preview"></div></div></div>
+      <div class="note-editor-foot"><span id="noteStatus">SAVED</span><span id="noteCounts"></span><span>CREATED ${displayTime(note.createdAt)} · UPDATED <b id="noteUpdated">${displayTime(note.updatedAt)}</b></span></div>`);
+    const refreshPreview = () => {
+      setHTML($("#notePreview"), renderMarkdown($("#noteBody").value) || `<p class="muted">Preview appears here.</p>`);
+      const text = $("#noteBody").value, words = text.trim() ? text.trim().split(/\s+/).length : 0;
+      $("#noteCounts").textContent = `${words} WORDS · ${text.length} CHARACTERS`;
+    };
+    const queueSave = () => {
+      $("#noteStatus").textContent = "SAVING...";
+      clearTimeout(saveDelay);
+      saveDelay = setTimeout(() => {
+        const current = noteById(selectedId); if (!current) return;
+        current.title = $("#noteTitle").value.trim() || "Untitled Note";
+        current.body = $("#noteBody").value; current.updatedAt = now(); save();
+        $("#noteStatus").textContent = "SAVED"; $("#noteUpdated").textContent = displayTime(current.updatedAt); paintList();
+      }, 350);
+    };
+    $("#noteTitle").oninput = queueSave;
+    $("#noteBody").oninput = () => { refreshPreview(); queueSave(); };
+    $$("[data-note-tag]", host).forEach(input => input.onchange = () => {
+      note.tagIds = $$("[data-note-tag]:checked", host).map(item => item.dataset.noteTag); note.updatedAt = now(); save(); paintList();
+    });
+    if (!trashed) {
+      $("#pinNote").onclick = () => { note.pinned = !note.pinned; note.updatedAt = now(); save(); paintAll(); };
+      $("#duplicateNote").onclick = () => createNote({ title: `${note.title} Copy`, body: note.body, tagIds: note.tagIds });
+      $("#archiveNote").onclick = () => { note.archived = !note.archived; note.pinned = false; note.updatedAt = now(); selectedId = null; save(); paintAll(); };
+      $("#trashNote").onclick = () => { note.trashed = true; note.archived = false; note.pinned = false; note.updatedAt = now(); selectedId = null; save(); paintAll(); };
+    } else {
+      $("#restoreNote").onclick = () => { note.trashed = false; note.updatedAt = now(); selectedId = null; save(); paintAll(); };
+      $("#deleteNoteForever").onclick = () => {
+        if (!confirm(`Permanently delete "${note.title}"?`)) return;
+        Store.data.notesV2 = Store.data.notesV2.filter(item => item.id !== note.id); selectedId = null; save(); paintAll();
+      };
+    }
+    refreshPreview();
+  };
+  const taskVisible = todo => {
+    const today = localIsoDate(new Date());
+    if (taskFilter === "active") return !todo.done;
+    if (taskFilter === "completed") return todo.done;
+    if (taskFilter === "overdue") return !todo.done && todo.dueDate && todo.dueDate < today;
+    if (taskFilter === "today") return todo.dueDate === today;
+    if (taskFilter === "upcoming") return !todo.done && todo.dueDate > today;
+    return true;
+  };
+  const paintTasks = () => {
+    const priorityRank = { high: 0, normal: 1, low: 2 };
+    const tasks = Store.data.todos.filter(taskVisible).sort((a, b) => Number(a.done) - Number(b.done) || priorityRank[a.priority] - priorityRank[b.priority] || (a.dueDate || "9999").localeCompare(b.dueDate || "9999") || b.createdAt - a.createdAt);
+    setHTML($("#todoList"), tasks.map(todo => {
+      const today = localIsoDate(new Date()), dueState = todo.dueDate && !todo.done ? todo.dueDate < today ? "overdue" : todo.dueDate === today ? "today" : "" : "";
+      return `<div class="task-item priority-${todo.priority} ${todo.done ? "done" : ""}" data-task-id="${todo.id}"><input type="checkbox" data-task-done aria-label="Complete task" ${todo.done ? "checked" : ""}><input class="task-text" value="${escapeHtml(todo.text)}" aria-label="Task text"><button data-task-priority title="Change priority">${todo.priority.toUpperCase()}</button><input type="date" data-task-due value="${todo.dueDate}" class="${dueState}" aria-label="Due date"><button data-task-delete class="danger" aria-label="Delete task">×</button></div>`;
+    }).join("") || `<div class="organizer-empty">NO ${taskFilter.toUpperCase()} TASKS</div>`);
+    $$("[data-task-id]", root).forEach(row => {
+      const todo = Store.data.todos.find(item => item.id === row.dataset.taskId);
+      $("[data-task-done]", row).onchange = event => { todo.done = event.target.checked; todo.updatedAt = now(); save(); paintTasks(); };
+      $(".task-text", row).onchange = event => { const value = event.target.value.trim(); if (value) { todo.text = value; todo.updatedAt = now(); save(); } else paintTasks(); };
+      $("[data-task-priority]", row).onclick = () => { todo.priority = { low: "normal", normal: "high", high: "low" }[todo.priority]; todo.updatedAt = now(); save(); paintTasks(); };
+      $("[data-task-due]", row).onchange = event => { todo.dueDate = event.target.value; todo.updatedAt = now(); save(); paintTasks(); };
+      $("[data-task-delete]", row).onclick = () => { Store.data.todos = Store.data.todos.filter(item => item.id !== todo.id); save(); paintTasks(); };
+    });
+  };
+  const paintView = () => {
+    $$("[data-organizer-view]", root).forEach(button => button.classList.toggle("active", button.dataset.organizerView === view));
+    $("#organizerNotes").classList.toggle("hidden", view === "tasks");
+    $("#organizerTasks").classList.toggle("hidden", view !== "tasks");
+    if (view === "tasks") paintTasks(); else { paintList(); paintEditor(); }
+  };
+  const paintAll = () => { paintTagOptions(); paintView(); };
+  const addTask = () => {
+    const input = $("#todoInput"), text = input.value.trim(); if (!text) return;
+    const timestamp = now();
+    Store.data.todos.push({ id: crypto.randomUUID(), text, done: false, priority: $("#todoPriority").value, dueDate: $("#todoDue").value, createdAt: timestamp, updatedAt: timestamp });
+    input.value = ""; save(); paintTasks();
+  };
+  const validateImport = raw => {
+    if (!raw || raw.format !== "bookmarklet-of-destiny-organizer" || raw.version !== 1) throw new Error("Unsupported organizer backup");
+    if (!Array.isArray(raw.notes) || !Array.isArray(raw.tags) || !Array.isArray(raw.todos)) throw new Error("Backup arrays are missing");
+    const ids = new Set(), timestamp = now();
+    const notes = raw.notes.map(note => {
+      if (!note || typeof note !== "object") throw new Error("Invalid note");
+      const id = String(note.id || crypto.randomUUID()); if (ids.has(`n:${id}`)) throw new Error("Duplicate note ID"); ids.add(`n:${id}`);
+      return { id, title: String(note.title || "Untitled Note").slice(0, 160), body: String(note.body || "").slice(0, 1000000), tagIds: Array.isArray(note.tagIds) ? note.tagIds.map(String) : [], pinned: !!note.pinned, archived: !!note.archived, trashed: !!note.trashed, createdAt: Number(note.createdAt) || timestamp, updatedAt: Number(note.updatedAt) || timestamp };
+    });
+    const tags = raw.tags.map(tag => {
+      const id = String(tag?.id || crypto.randomUUID()); if (ids.has(`g:${id}`)) throw new Error("Duplicate tag ID"); ids.add(`g:${id}`);
+      return { id, name: String(tag?.name || "Tag").slice(0, 40), color: /^#[0-9a-f]{6}$/i.test(tag?.color) ? tag.color : "#39ff88" };
+    });
+    const todos = raw.todos.map(todo => {
+      const id = String(todo?.id || crypto.randomUUID()); if (ids.has(`t:${id}`)) throw new Error("Duplicate task ID"); ids.add(`t:${id}`);
+      const text = String(todo?.text || "").trim().slice(0, 500); if (!text) throw new Error("Task text is missing");
+      return { id, text, done: !!todo.done, priority: ["low","normal","high"].includes(todo.priority) ? todo.priority : "normal", dueDate: /^\d{4}-\d{2}-\d{2}$/.test(todo.dueDate || "") ? todo.dueDate : "", createdAt: Number(todo.createdAt) || timestamp, updatedAt: Number(todo.updatedAt) || timestamp };
+    });
+    const validTagIds = new Set(tags.map(tag => tag.id)); notes.forEach(note => note.tagIds = note.tagIds.filter(id => validTagIds.has(id)));
+    return { notes, tags, todos };
+  };
+  const importOrganizer = async replace => {
+    const file = $("#importOrganizerFile").files[0]; if (!file) return $("#importStatus").textContent = "SELECT A JSON BACKUP FIRST.";
+    try {
+      if (!(file.type === "application/json" || file.name.toLowerCase().endsWith(".json"))) throw new Error("Choose a JSON backup file");
+      if (file.size > 5 * 1024 * 1024) throw new Error("Backup exceeds the 5 MB limit");
+      const incoming = validateImport(JSON.parse(await file.text()));
+      if (replace && !confirm("Replace all current notes, tags, and tasks with this backup?")) return;
+      if (replace) {
+        Store.data.notesV2 = incoming.notes; Store.data.noteTags = incoming.tags; Store.data.todos = incoming.todos;
+      } else {
+        const tagMap = new Map();
+        incoming.tags.forEach(tag => {
+          const existing = Store.data.noteTags.find(item => item.name.toLowerCase() === tag.name.toLowerCase());
+          if (existing) tagMap.set(tag.id, existing.id);
+          else { const id = Store.data.noteTags.some(item => item.id === tag.id) ? crypto.randomUUID() : tag.id; tagMap.set(tag.id, id); Store.data.noteTags.push({ ...tag, id }); }
+        });
+        incoming.notes.forEach(note => Store.data.notesV2.push({ ...note, id: Store.data.notesV2.some(item => item.id === note.id) ? crypto.randomUUID() : note.id, tagIds: note.tagIds.map(id => tagMap.get(id)).filter(Boolean) }));
+        incoming.todos.forEach(todo => Store.data.todos.push({ ...todo, id: Store.data.todos.some(item => item.id === todo.id) ? crypto.randomUUID() : todo.id }));
+      }
+      selectedId = null; save(); paintAll(); $("#importStatus").textContent = `${replace ? "REPLACED" : "MERGED"} ${incoming.notes.length} NOTES, ${incoming.tags.length} TAGS, ${incoming.todos.length} TASKS.`;
+    } catch (error) { $("#importStatus").textContent = `IMPORT ERROR: ${error.message}`; }
+  };
+
+  $$("[data-organizer-view]", root).forEach(button => button.onclick = () => { view = button.dataset.organizerView; selectedId = null; paintView(); });
+  $("#newNote").onclick = () => createNote();
+  $("#noteSearch").oninput = () => { selectedId = null; paintList(); paintEditor(); };
+  $("#noteSort").oninput = () => { selectedId = null; paintList(); paintEditor(); };
+  $("#noteTagFilter").oninput = () => { selectedId = null; paintList(); paintEditor(); };
+  $("#addTag").onclick = () => {
+    const name = $("#newTagName").value.trim(); if (!name) return;
+    if (Store.data.noteTags.some(tag => tag.name.toLowerCase() === name.toLowerCase())) return toast("Tag already exists");
+    Store.data.noteTags.push({ id: crypto.randomUUID(), name, color: $("#newTagColor").value }); $("#newTagName").value = ""; save(); paintAll();
+  };
+  $("#todoAdd").onclick = addTask; $("#todoInput").onkeydown = event => { if (event.key === "Enter") addTask(); };
+  $$("[data-task-filter]", root).forEach(button => button.onclick = () => { taskFilter = button.dataset.taskFilter; $$("[data-task-filter]", root).forEach(item => item.classList.toggle("active", item === button)); paintTasks(); });
+  $("#clearCompleted").onclick = () => { Store.data.todos = Store.data.todos.filter(todo => !todo.done); save(); paintTasks(); };
+  $("#exportOrganizer").onclick = () => {
+    const data = JSON.stringify({ format: "bookmarklet-of-destiny-organizer", version: 1, exportedAt: new Date().toISOString(), notes: Store.data.notesV2, tags: Store.data.noteTags, todos: Store.data.todos }, null, 2);
+    const link = el("a", { download: "bookmarklet-of-destiny-organizer.json", href: `data:application/json;charset=utf-8,${encodeURIComponent(data)}` }); link.click();
+  };
+  $("#importMerge").onclick = () => importOrganizer(false);
+  $("#importReplace").onclick = () => importOrganizer(true);
+  state.cleanup.push(() => clearTimeout(saveDelay));
+  window.render_organizer_to_text = () => JSON.stringify({ view, selectedId, taskFilter, notes: Store.data.notesV2, tags: Store.data.noteTags, todos: Store.data.todos });
+  state.cleanup.push(() => { delete window.render_organizer_to_text; });
+  paintAll();
 }
 
 function timePage(root) {
@@ -1658,6 +1885,7 @@ function helpPage(root) {
     <div class="card full"><h3>World Clock</h3><p class="muted">Save live IANA time zones and convert a chosen local date and time with daylight-saving gap and overlap detection.</p></div>
     <div class="card full"><h3>Color Tools</h3><p class="muted">Convert HEX, RGB, and HSL; generate palettes; check WCAG contrast; and preview approximate color-vision simulations.</p></div>
     <div class="card full"><h3>Developer Tools</h3><p class="muted">Test regular expressions, generate secure hashes, inspect JWT data, preview safe Markdown, and experiment with sanitized HTML and CSS.</p></div>
+    <div class="card full"><h3>Notes & Tasks</h3><p class="muted">Create searchable Markdown notes with tags, pins, archive and trash, plus prioritized tasks with local due dates and JSON backup.</p></div>
     <div class="card full"><h3>Browser limitations</h3><p class="muted">Chrome blocks bookmarklets on protected pages including <code>chrome://</code>, the New Tab page, extension pages, and the Chrome Web Store. On ordinary sites, the dashboard opens in a separate resizable popup window.</p></div>
     <div class="card full"><h3>Privacy</h3><p class="muted">Only the optional USD/INR updater contacts the fixed Frankfurter exchange-rate endpoint. All other tools load no external assets and use no analytics or accounts. Notes, tasks, settings, history, rates, and scores stay in local storage belonging to the page where the bookmarklet launched.</p></div></div>`));
 }
