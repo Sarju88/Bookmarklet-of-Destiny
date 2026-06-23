@@ -98,3 +98,11 @@ Original prompt: Build the complete “Bookmarklet of Destiny” plan: a self-co
 - Both complete 20-test regression suites pass.
 - Compact 700×520 board scrolling and strict-CSP popup mounting are covered.
 - Stage 7 implementation is complete; no remaining TODOs.
+
+## Stage 8 progress
+
+- Added Matrix Green, Amber Terminal, Cyber Cyan, and Ultraviolet theme presets with custom accent overrides.
+- Added independent Matrix brightness and speed controls with live preview and saved settings.
+- Added compact and comfortable interface density modes across preview and popup layouts.
+- Added persistent favorite modules with add, remove, and reorder controls; favorites lead the sidebar and Quick Launch.
+- Added migration-safe defaults, customization browser coverage, Help and README documentation, and regenerated artifacts.

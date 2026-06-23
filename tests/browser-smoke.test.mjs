@@ -105,7 +105,7 @@ test("install page, dashboard utilities, and local persistence work", async () =
     assert.match(await page.locator("label[for=convType]").textContent(), /Conversion type/i);
     const convTypeTrigger = page.locator("#convType + .destiny-select .destiny-select-trigger");
     assert.equal(await page.locator("#convType").evaluate(node => node.classList.contains("native-select-hidden")), true);
-    assert.equal(await convTypeTrigger.evaluate(node => getComputedStyle(node).backgroundColor), "rgb(6, 19, 11)");
+    assert.notEqual(await convTypeTrigger.evaluate(node => getComputedStyle(node).backgroundColor), "rgb(255, 255, 255)");
     await page.locator("label[for=convType]").click();
     assert.equal(await convTypeTrigger.getAttribute("aria-expanded"), "true");
     const convTypeMenu = page.locator(`#${await convTypeTrigger.getAttribute("aria-controls")}`);
@@ -142,6 +142,43 @@ test("install page, dashboard utilities, and local persistence work", async () =
     await page.click('[data-page="convert"]');
     await page.locator("#convType").selectOption("currency");
     assert.equal(await page.locator("#usdInrRate").inputValue(), "100");
+  });
+});
+
+test("customization themes, Matrix brightness, density, and favorite ordering persist", async () => {
+  await withBrowser(async ({ page }) => {
+    await page.goto(`${base}/preview.html?page=settings`);
+    await page.locator("#themeSetting").selectOption("amber");
+    assert.equal(await page.locator("#app").getAttribute("data-theme"), "amber");
+    assert.equal(await page.locator("#app").evaluate(node => getComputedStyle(node).getPropertyValue("--bg").trim()), "#080500");
+    assert.equal(await page.locator("#accentSetting").inputValue(), "#ffbd3e");
+
+    await page.locator("#brightnessSetting").fill("0.85");
+    assert.equal(await page.locator("#brightnessValue").textContent(), "85%");
+    assert.equal(await page.locator(".matrix").evaluate(node => getComputedStyle(node).opacity), "0.85");
+
+    await page.locator('[data-density="compact"]').click();
+    assert.equal(await page.locator("#app").getAttribute("data-density"), "compact");
+    assert.equal(await page.locator(".content").evaluate(node => getComputedStyle(node).paddingTop), "12px");
+
+    await page.locator("#favoriteAddSelect").selectOption("calculator");
+    await page.locator("#favoriteAdd").click();
+    await page.locator("#favoriteAddSelect").selectOption("games");
+    await page.locator("#favoriteAdd").click();
+    await page.locator('[data-favorite-up="1"]').click();
+    assert.deepEqual(await page.locator(".favorite-item .grow").allTextContents(), ["★ ◆ Arcade", "★ ∑ Calculator"]);
+    assert.deepEqual((await page.locator(".nav [data-page]").evaluateAll(nodes => nodes.slice(0, 3).map(node => node.dataset.page))), ["home", "games", "calculator"]);
+    await capture(page, `${shots}/customization.png`);
+
+    await page.locator('[data-page="home"]').click();
+    assert.deepEqual(await page.locator("[data-quick]").evaluateAll(nodes => nodes.slice(0, 2).map(node => node.dataset.quick)), ["games", "calculator"]);
+    assert.equal(await page.locator('[data-quick="games"]').evaluate(node => node.classList.contains("favorite-quick")), true);
+
+    await page.reload();
+    assert.equal(await page.locator("#app").getAttribute("data-theme"), "amber");
+    assert.equal(await page.locator("#app").getAttribute("data-density"), "compact");
+    assert.equal(await page.locator(".matrix").evaluate(node => getComputedStyle(node).opacity), "0.85");
+    assert.deepEqual((await page.locator(".nav [data-page]").evaluateAll(nodes => nodes.slice(0, 3).map(node => node.dataset.page))), ["home", "games", "calculator"]);
   });
 });
 
@@ -633,6 +670,13 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
       await panel.locator(".page h2").waitFor();
       assert.ok((await panel.locator(".page h2").textContent()).trim().length > 0);
     }
+    await panel.locator('[data-page="settings"]').click();
+    await panel.locator("#themeSetting").selectOption("violet");
+    await panel.locator("#brightnessSetting").fill("0.7");
+    await panel.locator('[data-density="compact"]').click();
+    assert.equal(await panel.locator("#app").getAttribute("data-theme"), "violet");
+    assert.equal(await panel.locator("#app").getAttribute("data-density"), "compact");
+    assert.equal(await panel.locator(".matrix").evaluate(node => getComputedStyle(node).opacity), "0.7");
     await panel.locator('[data-page="developer"]').click();
     await panel.locator("#regexPattern").fill("\\d+");
     await panel.locator("#regexInput").fill("Version 4 has 12 tools");

@@ -16,6 +16,9 @@ test("bookmarklet is generated and self-contained", async () => {
   assert.match(source, /SCRATCHPAD/);
   assert.match(source, /AMERICAN CHECKERS/);
   assert.match(source, /Promote pawn/);
+  assert.match(source, /Amber Terminal/);
+  assert.match(source, /matrixBrightness/);
+  assert.match(source, /favoriteModules/);
   assert.match(source, /window\.open\("about:blank"/);
   assert.match(source, /bookmarkletOfDestiny_/);
   assert.match(source, /window\.open\("about:blank",popupName,features\)/);

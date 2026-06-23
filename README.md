@@ -17,6 +17,7 @@ A self-contained Chrome bookmarklet that opens a centered popup dashboard with M
 - Snake Battle, 2048, Minesweeper Race, Tic-Tac-Toe, Pong, Breakout, Connect Four, Tron, Space Invaders, and Memory Match
 - Full-rule Chess and American Checkers with offline CPU and local two-player play
 - Local two-player modes in Snake, Minesweeper, Tic-Tac-Toe, Pong, Connect Four, Tron, and Memory
+- Four terminal themes, adjustable Matrix brightness and speed, compact/comfortable layouts, and reorderable favorite modules
 
 ## Install
 

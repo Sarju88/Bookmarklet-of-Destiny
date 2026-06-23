@@ -6,6 +6,7 @@ const appRoot = bootstrap?.root || document;
 const appMount = bootstrap?.mount || document.body;
 const appHost = bootstrap?.host || null;
 const embedded = !!bootstrap;
+if (!appMount.id) appMount.id = "app";
 const APP_KEY = "bookmarklet-of-destiny:v1";
 const USD_INR_API = "https://api.frankfurter.dev/v2/rates?base=USD&quotes=INR";
 const USD_INR_REFRESH_MS = 12 * 60 * 60 * 1000;
@@ -40,6 +41,13 @@ const PAGES = [
   ["settings", "⚙", "Settings"],
   ["help", "?", "Help"]
 ];
+const FAVORITE_PAGE_IDS = PAGES.map(([id]) => id).filter(id => !["home", "settings", "help"].includes(id));
+const TERMINAL_THEMES = {
+  matrix: { name: "Matrix Green", bg: "#020704", panel: "#06110bbd", panel2: "#091a10", line: "#174c2b", accent: "#39ff88", text: "#9affbd", muted: "#669276" },
+  amber: { name: "Amber Terminal", bg: "#080500", panel: "#171005bd", panel2: "#211707", line: "#624315", accent: "#ffbd3e", text: "#ffe0a1", muted: "#a37d45" },
+  cyan: { name: "Cyber Cyan", bg: "#010708", panel: "#041416bd", panel2: "#071d20", line: "#15535b", accent: "#35e7ff", text: "#a9f6ff", muted: "#57949b" },
+  violet: { name: "Ultraviolet", bg: "#07030b", panel: "#13091bbd", panel2: "#1c0d27", line: "#51236a", accent: "#d66bff", text: "#edbdff", muted: "#946aa3" }
+};
 
 const defaults = {
   version: 1,
@@ -52,6 +60,7 @@ const defaults = {
   scores: { snake: 0, "2048": 0, mines: 0, ttt: 0, pong: 0, breakout: 0, connect4: 0, tron: 0, invaders: 0, memory: 0, chess: 0, checkers: 0 },
   settings: {
     rain: true, sound: false, density: 1, accent: "#39ff88",
+    terminalTheme: "matrix", matrixBrightness: .58, uiDensity: "comfortable", favoriteModules: [],
     usdInrRate: 94.37, usdInrSourceDate: "", usdInrUpdatedAt: 0,
     usdInrLastAttemptAt: 0, usdInrManual: false,
     worldClocks: ["America/New_York", "Europe/London", "Asia/Kolkata", "Asia/Tokyo"],
@@ -66,6 +75,10 @@ const Store = {
       const parsed = JSON.parse(localStorage.getItem(APP_KEY) || "null");
       if (parsed?.version === 1) this.data = { ...structuredClone(defaults), ...parsed, settings: { ...defaults.settings, ...parsed.settings }, scores: { ...defaults.scores, ...parsed.scores } };
     } catch {}
+    if (!TERMINAL_THEMES[this.data.settings.terminalTheme]) this.data.settings.terminalTheme = "matrix";
+    if (!["compact", "comfortable"].includes(this.data.settings.uiDensity)) this.data.settings.uiDensity = "comfortable";
+    this.data.settings.matrixBrightness = Math.min(1, Math.max(.1, Number(this.data.settings.matrixBrightness) || .58));
+    this.data.settings.favoriteModules = [...new Set(Array.isArray(this.data.settings.favoriteModules) ? this.data.settings.favoriteModules : [])].filter(id => FAVORITE_PAGE_IDS.includes(id));
     this.migrateOrganizer();
     return this.data;
   },
@@ -119,6 +132,30 @@ const Store = {
     this.save();
   }
 };
+
+function orderedPages() {
+  const favorites = Store.data.settings.favoriteModules || [];
+  const home = PAGES.filter(([id]) => id === "home");
+  const utilityPages = PAGES.filter(([id]) => FAVORITE_PAGE_IDS.includes(id));
+  const favoritePages = favorites.map(id => utilityPages.find(([pageId]) => pageId === id)).filter(Boolean);
+  const remainingPages = utilityPages.filter(([id]) => !favorites.includes(id));
+  const systemPages = PAGES.filter(([id]) => ["settings", "help"].includes(id));
+  return [...home, ...favoritePages, ...remainingPages, ...systemPages];
+}
+
+function applyAppearance() {
+  const settings = Store.data.settings;
+  const theme = TERMINAL_THEMES[settings.terminalTheme] || TERMINAL_THEMES.matrix;
+  const customAccent = /^#[0-9a-f]{6}$/i.test(settings.accent) ? settings.accent : theme.accent;
+  const values = {
+    "--bg": theme.bg, "--panel": theme.panel, "--panel2": theme.panel2, "--line": theme.line,
+    "--green": customAccent, "--green2": theme.text, "--muted": theme.muted,
+    "--glow": `0 0 22px ${customAccent}30`, "--matrix-opacity": settings.matrixBrightness
+  };
+  Object.entries(values).forEach(([key, value]) => appMount.style.setProperty(key, value));
+  appMount.dataset.density = settings.uiDensity;
+  appMount.dataset.theme = settings.terminalTheme;
+}
 
 const state = {
   page: PAGES.some(([id]) => id === new URLSearchParams(location.search).get("page")) ? new URLSearchParams(location.search).get("page") : "home",
@@ -509,11 +546,12 @@ function pageFrame(title, subtitle, body) {
 }
 
 function renderShell() {
-  appMount.style.setProperty("--green", Store.data.settings.accent);
+  applyAppearance();
+  const favorites = Store.data.settings.favoriteModules || [];
   setHTML(appMount, `<div class="shell">
     <aside class="sidebar"><div class="brand"><b>BOOKMARKLET<br>OF DESTINY</b><small>v1.0 // OFFLINE</small></div>
     <input class="search" id="navSearch" aria-label="Filter modules" placeholder="filter modules...">
-    <nav class="nav" aria-label="Modules">${PAGES.map(([id, icon, name]) => `<button data-page="${id}" class="${id === state.page ? "active" : ""}"><span>${icon}</span>${name}</button>`).join("")}</nav>
+    <nav class="nav" aria-label="Modules">${orderedPages().map(([id, icon, name]) => `<button data-page="${id}" class="${id === state.page ? "active" : ""}"><span>${icon}</span>${name}${favorites.includes(id) ? `<i aria-label="Favorite" title="Favorite module">★</i>` : ""}</button>`).join("")}</nav>
     <div class="sidebar-foot">CTRL+K COMMAND PALETTE<br>ESC CLOSE OVERLAY</div></aside>
     <main class="main"><header class="topbar" id="dragHandle"><h1>DESTINY_OS</h1><span class="muted tiny">STATUS: ONLINE</span><div class="spacer"></div><span class="clock"></span><button class="iconbtn" id="paletteBtn" title="Command palette">⌘</button><button class="iconbtn" id="minimizeBtn" title="Minimize">—</button><button class="iconbtn" id="closeBtn" title="Close">×</button></header><div class="content" id="content"></div></main>
   </div><div class="palette hidden" id="palette"><div class="palette-box"><input id="paletteInput" placeholder="Type a command or module..." autocomplete="off"><div class="palette-results"></div></div></div><canvas class="matrix"></canvas><div class="resize-handle" id="resizeHandle" title="Resize dashboard"></div>`);
@@ -523,8 +561,7 @@ function renderShell() {
     const stopRain = matrixRain($(".matrix"));
     state.appCleanup.push(stopRain);
   }
-  $$(".nav button").forEach(button => button.onclick = () => navigate(button.dataset.page));
-  $("#navSearch").oninput = e => $$(".nav button").forEach(button => button.classList.toggle("hidden", !button.textContent.toLowerCase().includes(e.target.value.toLowerCase())));
+  refreshNavigation();
   $("#closeBtn").onclick = () => {
     clearPageLifecycle();
     state.appCleanup.splice(0).forEach(fn => { try { fn(); } catch {} });
@@ -544,6 +581,17 @@ function renderShell() {
   addEventListener("keydown", globalKeys);
   state.appCleanup.push(() => removeEventListener("keydown", globalKeys));
   renderPage();
+}
+
+function refreshNavigation() {
+  const nav = $(".nav");
+  if (!nav) return;
+  const favorites = Store.data.settings.favoriteModules || [];
+  setHTML(nav, orderedPages().map(([id, icon, name]) => `<button data-page="${id}" class="${id === state.page ? "active" : ""}"><span>${icon}</span>${name}${favorites.includes(id) ? `<i aria-label="Favorite" title="Favorite module">★</i>` : ""}</button>`).join(""));
+  $$(".nav button").forEach(button => button.onclick = () => navigate(button.dataset.page));
+  const search = $("#navSearch");
+  search.oninput = event => $$(".nav button").forEach(button => button.classList.toggle("hidden", !button.textContent.toLowerCase().includes(event.target.value.toLowerCase())));
+  if (search.value) search.oninput({ target: search });
 }
 
 function globalKeys(event) {
@@ -586,9 +634,10 @@ function renderPage() {
 
 function homePage(root) {
   const todoOpen = Store.data.todos.filter(t => !t.done).length;
+  const quickPages = orderedPages().filter(([id]) => FAVORITE_PAGE_IDS.includes(id));
   setHTML(root, pageFrame("COMMAND CENTER", "Everyday tools and arcade systems ready.", `<div class="stat-grid">
     <div class="stat"><b>${PAGES.length}</b><span>MODULES</span></div><div class="stat"><b>12</b><span>GAMES</span></div><div class="stat"><b>${todoOpen}</b><span>OPEN TASKS</span></div><div class="stat"><b>100%</b><span>OFFLINE</span></div>
-    </div><div class="grid" style="margin-top:14px"><div class="card full"><h3>Quick launch</h3><div class="row wrap">${PAGES.filter(([id]) => !["home","settings","help"].includes(id)).map(([id, icon, name]) => `<button data-quick="${id}">${icon} ${name}</button>`).join("")}</div></div>
+    </div><div class="grid" style="margin-top:14px"><div class="card full"><h3>Quick launch</h3><div class="row wrap">${quickPages.map(([id, icon, name]) => `<button data-quick="${id}" class="${Store.data.settings.favoriteModules.includes(id) ? "favorite-quick" : ""}">${Store.data.settings.favoriteModules.includes(id) ? "★ " : ""}${icon} ${name}</button>`).join("")}</div></div>
     <div class="card"><h3>System message</h3><div class="output">Wake up, operator. The toolbox is loaded. Press <kbd>Ctrl</kbd> + <kbd>K</kbd> to search every command.</div></div>
     <div class="card"><h3>Local high scores</h3><div class="list">${Object.entries(Store.data.scores).map(([game, score]) => `<div class="item"><span class="grow">${game.toUpperCase()}</span><b>${score}</b></div>`).join("")}</div></div></div>`));
   $$("[data-quick]", root).forEach(button => button.onclick = () => navigate(button.dataset.quick));
@@ -2122,18 +2171,73 @@ function checkersGame(host) {
 }
 
 function settingsPage(root) {
-  setHTML(root, pageFrame("SETTINGS", "Customize visuals and manage local data.", `<div class="grid"><div class="card"><h3>Matrix display</h3><label class="item"><input id="rainSetting" type="checkbox" ${Store.data.settings.rain ? "checked" : ""} style="width:auto"> Digital rain enabled</label><label>Rain speed<input id="densitySetting" type="range" min=".4" max="2" step=".1" value="${Store.data.settings.density}"></label><label>Accent color<input id="accentSetting" type="color" value="${Store.data.settings.accent}" style="height:45px"></label></div>
-    <div class="card"><h3>Data</h3><p class="muted">Data is stored only for this website origin. Reset permanently deletes notes, tasks, history, settings, and scores.</p><button id="resetData" class="danger">RESET ALL LOCAL DATA</button></div>
+  const favoriteOptions = FAVORITE_PAGE_IDS.filter(id => !Store.data.settings.favoriteModules.includes(id)).map(id => {
+    const page = PAGES.find(([pageId]) => pageId === id);
+    return `<option value="${id}">${page[2]}</option>`;
+  }).join("");
+  setHTML(root, pageFrame("SETTINGS", "Customize the terminal, Matrix display, layout, and favorite modules.", `<div class="grid">
+    <div class="card"><h3>Terminal theme</h3><div class="select-field"><label class="select-label" for="themeSetting">Theme preset</label><select id="themeSetting" class="select-full">${Object.entries(TERMINAL_THEMES).map(([id, theme]) => `<option value="${id}" ${Store.data.settings.terminalTheme === id ? "selected" : ""}>${theme.name}</option>`).join("")}</select></div><label>Custom accent color<input id="accentSetting" type="color" value="${Store.data.settings.accent}" style="height:45px"></label><p class="muted tiny">Changing the preset restores that theme’s matching accent. The color picker can then override it.</p></div>
+    <div class="card"><h3>Matrix display</h3><label class="item"><input id="rainSetting" type="checkbox" ${Store.data.settings.rain ? "checked" : ""} style="width:auto"> Digital rain enabled</label><label>Rain brightness <output id="brightnessValue">${Math.round(Store.data.settings.matrixBrightness * 100)}%</output><input id="brightnessSetting" type="range" min=".1" max="1" step=".05" value="${Store.data.settings.matrixBrightness}"></label><label>Rain speed <output id="rainSpeedValue">${Store.data.settings.density.toFixed(1)}×</output><input id="densitySetting" type="range" min=".4" max="2" step=".1" value="${Store.data.settings.density}"></label></div>
+    <div class="card"><h3>Interface density</h3><div class="density-options" role="group" aria-label="Interface density"><button data-density="compact" class="${Store.data.settings.uiDensity === "compact" ? "active" : ""}">COMPACT</button><button data-density="comfortable" class="${Store.data.settings.uiDensity === "comfortable" ? "active" : ""}">COMFORTABLE</button></div><p class="muted">Compact mode reduces spacing and control height so more information fits inside the popup.</p></div>
+    <div class="card"><h3>Data</h3><p class="muted">Data is stored only for this website origin. Reset permanently deletes notes, tasks, history, settings, favorites, and scores.</p><button id="resetData" class="danger">RESET ALL LOCAL DATA</button></div>
+    <div class="card full"><h3>Favorite modules</h3><p class="muted">Favorites appear first in the sidebar and Quick Launch in the order shown here.</p><div class="row wrap"><div class="select-field favorite-picker"><label class="select-label" for="favoriteAddSelect">Module</label><select id="favoriteAddSelect" class="select-full" ${favoriteOptions ? "" : "disabled"}>${favoriteOptions || `<option>All modules added</option>`}</select></div><button id="favoriteAdd" ${favoriteOptions ? "" : "disabled"}>ADD FAVORITE</button></div><div class="favorite-list" id="favoriteList"></div></div>
     <div class="card full"><h3>Storage identity</h3><div class="output">${escapeHtml(location.origin === "null" ? "opaque preview origin" : location.origin)}<br>KEY: ${APP_KEY}</div></div></div>`));
+  const paintFavorites = () => {
+    const list = $("#favoriteList");
+    const favorites = Store.data.settings.favoriteModules;
+    setHTML(list, favorites.length ? favorites.map((id, index) => {
+      const [, icon, name] = PAGES.find(([pageId]) => pageId === id);
+      return `<div class="favorite-item"><span class="grow">★ ${icon} ${name}</span><button data-favorite-up="${index}" ${index === 0 ? "disabled" : ""} aria-label="Move ${name} up">↑</button><button data-favorite-down="${index}" ${index === favorites.length - 1 ? "disabled" : ""} aria-label="Move ${name} down">↓</button><button data-favorite-remove="${id}" aria-label="Remove ${name} from favorites">REMOVE</button></div>`;
+    }).join("") : `<div class="organizer-empty">NO FAVORITE MODULES YET</div>`);
+    $$("[data-favorite-up]", list).forEach(button => button.onclick = () => {
+      const index = Number(button.dataset.favoriteUp);
+      [favorites[index - 1], favorites[index]] = [favorites[index], favorites[index - 1]];
+      Store.save(); paintFavorites(); refreshNavigation();
+    });
+    $$("[data-favorite-down]", list).forEach(button => button.onclick = () => {
+      const index = Number(button.dataset.favoriteDown);
+      [favorites[index + 1], favorites[index]] = [favorites[index], favorites[index + 1]];
+      Store.save(); paintFavorites(); refreshNavigation();
+    });
+    $$("[data-favorite-remove]", list).forEach(button => button.onclick = () => {
+      Store.data.settings.favoriteModules = favorites.filter(id => id !== button.dataset.favoriteRemove);
+      Store.save(); navigate("settings"); refreshNavigation();
+    });
+  };
+  paintFavorites();
   $("#rainSetting").onchange = e => Store.update("settings.rain", e.target.checked);
-  $("#densitySetting").oninput = e => Store.update("settings.density", Number(e.target.value));
-  $("#accentSetting").oninput = e => { Store.update("settings.accent", e.target.value); appMount.style.setProperty("--green", e.target.value); };
+  $("#brightnessSetting").oninput = e => {
+    Store.update("settings.matrixBrightness", Number(e.target.value));
+    $("#brightnessValue").textContent = `${Math.round(Number(e.target.value) * 100)}%`;
+    applyAppearance();
+  };
+  $("#densitySetting").oninput = e => {
+    Store.update("settings.density", Number(e.target.value));
+    $("#rainSpeedValue").textContent = `${Number(e.target.value).toFixed(1)}×`;
+  };
+  $("#themeSetting").onchange = e => {
+    Store.data.settings.terminalTheme = e.target.value;
+    Store.data.settings.accent = TERMINAL_THEMES[e.target.value].accent;
+    Store.save(); applyAppearance();
+    $("#accentSetting").value = Store.data.settings.accent;
+  };
+  $("#accentSetting").oninput = e => { Store.update("settings.accent", e.target.value); applyAppearance(); };
+  $$("[data-density]", root).forEach(button => button.onclick = () => {
+    Store.update("settings.uiDensity", button.dataset.density);
+    applyAppearance();
+    $$("[data-density]", root).forEach(item => item.classList.toggle("active", item === button));
+  });
+  $("#favoriteAdd").onclick = () => {
+    const id = $("#favoriteAddSelect").value;
+    if (!FAVORITE_PAGE_IDS.includes(id) || Store.data.settings.favoriteModules.includes(id)) return;
+    Store.data.settings.favoriteModules.push(id); Store.save(); navigate("settings"); refreshNavigation();
+  };
   $("#resetData").onclick = resetAll;
 }
 
 function resetAll() {
   if (!confirm("Delete all Bookmarklet of Destiny data saved on this site?")) return;
-  Store.reset(); toast("Local data reset"); navigate("home");
+  Store.reset(); applyAppearance(); refreshNavigation(); toast("Local data reset"); navigate("home");
 }
 
 function helpPage(root) {
@@ -2145,6 +2249,7 @@ function helpPage(root) {
     <div class="card full"><h3>Color Tools</h3><p class="muted">Convert HEX, RGB, and HSL; generate palettes; check WCAG contrast; and preview approximate color-vision simulations.</p></div>
     <div class="card full"><h3>Developer Tools</h3><p class="muted">Test regular expressions, generate secure hashes, inspect JWT data, preview safe Markdown, and experiment with sanitized HTML and CSS.</p></div>
     <div class="card full"><h3>Notes & Tasks</h3><p class="muted">Create searchable Markdown notes with tags, pins, archive and trash, plus prioritized tasks with local due dates and JSON backup.</p></div>
+    <div class="card full"><h3>Customization</h3><p class="muted">Choose a Matrix, amber, cyan, or violet terminal theme; adjust digital-rain brightness and speed; switch between comfortable and compact layouts; and arrange favorite modules at the top of navigation and Quick Launch.</p></div>
     <div class="card full"><h3>Browser limitations</h3><p class="muted">Chrome blocks bookmarklets on protected pages including <code>chrome://</code>, the New Tab page, extension pages, and the Chrome Web Store. On ordinary sites, the dashboard opens in a separate resizable popup window.</p></div>
     <div class="card full"><h3>Privacy</h3><p class="muted">Only the optional USD/INR updater contacts the fixed Frankfurter exchange-rate endpoint. All other tools load no external assets and use no analytics or accounts. Notes, tasks, settings, history, rates, and scores stay in local storage belonging to the page where the bookmarklet launched.</p></div></div>`));
 }
