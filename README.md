@@ -29,6 +29,8 @@ Open the [Bookmarklet of Destiny installation page](https://sarju88.github.io/Bo
 
 That is all—nothing needs to be downloaded or installed. It works on most ordinary websites. Chrome blocks bookmarklets on New Tab, `chrome://`, extension pages, and the Chrome Web Store; those are the expected exceptions. Use **Test Launch** on the installation page to verify the popup.
 
+Note: Bookmarklet of Destiny has only been tested on macOS.
+
 ## If It Opens as a Tab Instead of a Popup
 
 If **Launch Destiny** opens in a new tab instead of a small popup window, use this checklist:
