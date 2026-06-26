@@ -711,6 +711,92 @@ test("file tools inspect and transform local files offline", async () => {
   });
 });
 
+test("study tools manage flashcards, quizzes, references, and math helpers", async () => {
+  await withBrowser(async ({ page }) => {
+    await page.goto(`${base}/preview.html?page=study`);
+    const studyState = () => page.evaluate(() => JSON.parse(window.render_study_tools_to_text()));
+    assert.equal((await studyState()).activeTab, "flash");
+    assert.equal(await page.locator("[data-study-tab]").count(), 6);
+
+    await page.locator("#cardFront").fill("Capital of France?");
+    await page.locator("#cardBack").fill("Paris");
+    await page.locator("#saveCard").click();
+    assert.equal((await studyState()).flashcards.count, 1);
+    assert.match(await page.locator("#reviewCard").textContent(), /Capital/);
+    await page.locator("#flipCard").click();
+    assert.match(await page.locator("#reviewCard").textContent(), /Paris/);
+    await page.locator("[data-edit-card]").click();
+    await page.locator("#cardBack").fill("Paris, France");
+    await page.locator("#saveCard").click();
+    await page.locator("#flipCard").click();
+    assert.match(await page.locator("#reviewCard").textContent(), /Paris, France/);
+    await page.locator("#cardFront").fill("2 + 2?");
+    await page.locator("#cardBack").fill("4");
+    await page.locator("#saveCard").click();
+    await page.locator("#shuffleCards").click();
+    assert.equal((await studyState()).flashcards.count, 2);
+    await page.reload();
+    await page.locator('[data-page="study"]').click();
+    assert.equal((await studyState()).flashcards.count, 2);
+    await page.locator("[data-delete-card]").first().click();
+    assert.equal((await studyState()).flashcards.count, 1);
+
+    await page.locator('[data-study-tab="quiz"]').click();
+    await page.locator("#quizNotes").fill("# Cells\n- Nucleus stores DNA\nMitochondria: powerhouse of the cell\nDiffusion");
+    await page.locator("#generateQuiz").click();
+    assert.equal((await studyState()).quizCount, 4);
+    assert.match(await page.locator("#quizOutput").textContent(), /What is Mitochondria/);
+
+    await page.locator('[data-study-tab="formulas"]').click();
+    await page.locator("#formulaSearch").fill("force");
+    assert.equal((await studyState()).formulaCount, 1);
+    assert.match(await page.locator("#formulaList").textContent(), /F = ma/);
+    await page.locator("#formulaSearch").fill("zzzz");
+    assert.equal((await studyState()).formulaCount, 0);
+    assert.match(await page.locator("#formulaList").textContent(), /NO FORMULAS/);
+
+    await page.locator('[data-study-tab="periodic"]').click();
+    await page.locator("#elementSearch").fill("oxygen");
+    assert.equal((await studyState()).elementCount, 1);
+    assert.match(await page.locator("#elementTable").textContent(), /Oxygen/);
+    await page.locator("#elementSearch").fill("79");
+    assert.match(await page.locator("#elementTable").textContent(), /Gold/);
+
+    await page.locator('[data-study-tab="circle"]').click();
+    await page.locator("#angleSelect").selectOption("45°");
+    assert.equal((await studyState()).angle, "45°");
+    assert.match(await page.locator("#angleOutput").textContent(), /√2\/2/);
+
+    await page.locator('[data-study-tab="math"]').click();
+    await page.locator("#fracNum").fill("12");
+    await page.locator("#fracDen").fill("18");
+    await page.locator("#simplifyFraction").click();
+    assert.equal((await studyState()).math.fraction, "2/3");
+    await page.locator("#x1").fill("0");
+    await page.locator("#y1").fill("0");
+    await page.locator("#x2").fill("2");
+    await page.locator("#y2").fill("4");
+    await page.locator("#calcSlope").click();
+    assert.equal((await studyState()).math.slope, "2");
+    await page.locator("#quadA").fill("1");
+    await page.locator("#quadB").fill("-3");
+    await page.locator("#quadC").fill("2");
+    await page.locator("#solveQuadratic").click();
+    assert.match((await studyState()).math.quadratic, /TWO REAL ROOTS/);
+    await page.locator("#quadB").fill("2");
+    await page.locator("#quadC").fill("1");
+    await page.locator("#solveQuadratic").click();
+    assert.match((await studyState()).math.quadratic, /ONE REAL ROOT/);
+    await page.locator("#quadB").fill("0");
+    await page.locator("#quadC").fill("1");
+    await page.locator("#solveQuadratic").click();
+    assert.match((await studyState()).math.quadratic, /NO REAL ROOTS/);
+    await capture(page, `${shots}/study-tools.png`);
+    await page.click('[data-page="home"]');
+    assert.equal(await page.evaluate(() => typeof window.render_study_tools_to_text), "undefined");
+  });
+});
+
 test("bookmarklet opens a reusable self-contained popup on strict CSP pages", async () => {
   await withBrowser(async ({ context, page }) => {
     const raw = await readFile("dist/bookmarklet.txt", "utf8");
@@ -731,7 +817,7 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     assert.equal(context.pages().length, 2);
     assert.equal(await panel.locator("html").getAttribute("data-ready"), "1");
     assert.equal(panel.url(), "about:blank");
-    for (const module of ["calculator", "organizer", "time", "calendar", "worldclock", "colors", "convert", "text", "developer", "inspector", "files", "random", "qr", "draw", "page", "games", "settings", "help", "home"]) {
+    for (const module of ["calculator", "organizer", "time", "calendar", "worldclock", "colors", "convert", "text", "developer", "inspector", "files", "study", "random", "qr", "draw", "page", "games", "settings", "help", "home"]) {
       await panel.locator(`[data-page="${module}"]`).click();
       await panel.locator(".page h2").waitFor();
       assert.ok((await panel.locator(".page h2").textContent()).trim().length > 0);
@@ -766,6 +852,10 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     assert.match(await panel.locator(".page h2").textContent(), /FILE TOOLS/);
     assert.equal(await panel.evaluate(() => JSON.parse(window.render_file_tools_to_text()).activeTab), "image");
     await capture(panel, `${shots}/file-tools-popup.png`);
+    await panel.locator('[data-page="study"]').click();
+    assert.match(await panel.locator(".page h2").textContent(), /STUDY TOOLS/);
+    assert.equal(await panel.evaluate(() => JSON.parse(window.render_study_tools_to_text()).activeTab), "flash");
+    await capture(panel, `${shots}/study-tools-popup.png`);
     await panel.locator('[data-page="organizer"]').click();
     await panel.locator("#newNote").click();
     await panel.locator("#noteTitle").fill("Popup note");

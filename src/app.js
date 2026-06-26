@@ -35,6 +35,7 @@ const PAGES = [
   ["developer", "</>", "Developer Tools"],
   ["inspector", "⌕", "Page Inspector"],
   ["files", "▤", "File Tools"],
+  ["study", "⌬", "Study Tools"],
   ["random", "⚄", "Random Lab"],
   ["qr", "▦", "QR Generator"],
   ["draw", "✎", "Drawing Pad"],
@@ -58,6 +59,7 @@ const defaults = {
   noteTags: [],
   organizerMigrated: false,
   todos: [],
+  flashcards: [],
   calcHistory: [],
   scores: { snake: 0, "2048": 0, mines: 0, ttt: 0, pong: 0, breakout: 0, connect4: 0, tron: 0, invaders: 0, memory: 0, chess: 0, checkers: 0 },
   settings: {
@@ -89,6 +91,7 @@ const Store = {
     if (!Array.isArray(this.data.notesV2)) this.data.notesV2 = [];
     if (!Array.isArray(this.data.noteTags)) this.data.noteTags = [];
     if (!Array.isArray(this.data.todos)) this.data.todos = [];
+    if (!Array.isArray(this.data.flashcards)) this.data.flashcards = [];
     let changed = !this.data.todos.every(todo => todo.id && todo.priority && "dueDate" in todo && todo.createdAt && todo.updatedAt);
     if (!this.data.organizerMigrated) {
       if (String(this.data.notes || "").trim() && !this.data.notesV2.length) {
@@ -117,6 +120,13 @@ const Store = {
       dueDate: /^\d{4}-\d{2}-\d{2}$/.test(todo.dueDate || "") ? todo.dueDate : "",
       createdAt: Number(todo.createdAt) || now, updatedAt: Number(todo.updatedAt) || now
     })).filter(todo => todo.text);
+    this.data.flashcards = this.data.flashcards.map(card => ({
+      id: card.id || crypto.randomUUID(),
+      front: String(card.front || "").slice(0, 500),
+      back: String(card.back || "").slice(0, 1000),
+      createdAt: Number(card.createdAt) || now,
+      updatedAt: Number(card.updatedAt) || now
+    })).filter(card => card.front || card.back);
     if (changed) this.save();
   },
   save() {
@@ -629,7 +639,7 @@ function navigate(page) {
 
 function renderPage() {
   const content = $("#content");
-  const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, calendar: calendarPage, worldclock: worldClockPage, colors: colorToolsPage, convert: convertPage, text: textPage, developer: developerToolsPage, inspector: inspectorPage, files: fileToolsPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
+  const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, calendar: calendarPage, worldclock: worldClockPage, colors: colorToolsPage, convert: convertPage, text: textPage, developer: developerToolsPage, inspector: inspectorPage, files: fileToolsPage, study: studyToolsPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
   setHTML(content, "");
   renderers[state.page](content);
   state.cleanup.push(enhanceSelects(content));
@@ -1929,6 +1939,89 @@ function fileToolsPage(root) {
   state.cleanup.push(() => { delete window.render_file_tools_to_text; });
 }
 
+const STUDY_FORMULAS = [
+  ["Algebra", "Slope", "m = (y₂ - y₁) / (x₂ - x₁)"],
+  ["Algebra", "Quadratic formula", "x = (-b ± √(b² - 4ac)) / 2a"],
+  ["Geometry", "Circle area", "A = πr²"],
+  ["Geometry", "Triangle area", "A = 1/2 bh"],
+  ["Geometry", "Pythagorean theorem", "a² + b² = c²"],
+  ["Physics", "Force", "F = ma"],
+  ["Physics", "Kinetic energy", "KE = 1/2 mv²"],
+  ["Physics", "Ohm's law", "V = IR"],
+  ["Chemistry", "Moles", "n = m / M"],
+  ["Chemistry", "Density", "ρ = m / V"]
+];
+const STUDY_ELEMENTS = [
+  [1,"H","Hydrogen","1.008","nonmetal"],[2,"He","Helium","4.0026","noble gas"],[3,"Li","Lithium","6.94","alkali metal"],[4,"Be","Beryllium","9.0122","alkaline earth"],[5,"B","Boron","10.81","metalloid"],[6,"C","Carbon","12.011","nonmetal"],[7,"N","Nitrogen","14.007","nonmetal"],[8,"O","Oxygen","15.999","nonmetal"],[9,"F","Fluorine","18.998","halogen"],[10,"Ne","Neon","20.180","noble gas"],[11,"Na","Sodium","22.990","alkali metal"],[12,"Mg","Magnesium","24.305","alkaline earth"],[13,"Al","Aluminum","26.982","post-transition"],[14,"Si","Silicon","28.085","metalloid"],[15,"P","Phosphorus","30.974","nonmetal"],[16,"S","Sulfur","32.06","nonmetal"],[17,"Cl","Chlorine","35.45","halogen"],[18,"Ar","Argon","39.948","noble gas"],[19,"K","Potassium","39.098","alkali metal"],[20,"Ca","Calcium","40.078","alkaline earth"],[26,"Fe","Iron","55.845","transition metal"],[29,"Cu","Copper","63.546","transition metal"],[47,"Ag","Silver","107.868","transition metal"],[53,"I","Iodine","126.904","halogen"],[79,"Au","Gold","196.967","transition metal"],[82,"Pb","Lead","207.2","post-transition"],[92,"U","Uranium","238.029","actinide"]
+];
+const UNIT_CIRCLE = [
+  ["0°","0","0","1","0"],["30°","π/6","1/2","√3/2","√3/3"],["45°","π/4","√2/2","√2/2","1"],["60°","π/3","√3/2","1/2","√3"],["90°","π/2","1","0","undefined"],["180°","π","0","-1","0"],["270°","3π/2","-1","0","undefined"],["360°","2π","0","1","0"]
+];
+const gcd = (a, b) => { a = Math.abs(a); b = Math.abs(b); while (b) [a, b] = [b, a % b]; return a || 1; };
+
+function studyToolsPage(root) {
+  const tabs = [["flash", "FLASHCARDS"], ["quiz", "QUIZ"], ["formulas", "FORMULAS"], ["periodic", "PERIODIC"], ["circle", "UNIT CIRCLE"], ["math", "MATH"]];
+  setHTML(root, pageFrame("STUDY TOOLS", "Offline school helpers, references, flashcards, and deterministic quiz prompts.", `<div class="study-tabs" role="tablist" aria-label="Study tools">${tabs.map(([id, label], index) => `<button role="tab" aria-selected="${index === 0}" aria-controls="study-${id}" data-study-tab="${id}" class="${index === 0 ? "active" : ""}">${label}</button>`).join("")}</div>
+    <div id="studyPanels">
+      <section id="study-flash" class="study-panel" role="tabpanel"><div class="grid"><div class="card"><h3>Card editor</h3><input id="cardFront" placeholder="Front / question"><textarea id="cardBack" placeholder="Back / answer"></textarea><div class="row wrap"><button id="saveCard" class="primary">ADD CARD</button><button id="clearCard">CLEAR</button><button id="shuffleCards">SHUFFLE REVIEW</button></div></div><div class="card"><h3>Review</h3><div class="study-review-card" id="reviewCard">NO CARDS YET</div><div class="row wrap"><button id="flipCard">FLIP</button><button id="prevCard">PREV</button><button id="nextCard">NEXT</button></div></div><div class="card full"><h3>Saved cards</h3><div class="study-list" id="cardList"></div></div></div></section>
+      <section id="study-quiz" class="study-panel hidden" role="tabpanel"><div class="grid"><div class="card"><h3>Notes</h3><textarea id="quizNotes" class="developer-editor" placeholder="# Photosynthesis&#10;- Chlorophyll absorbs light&#10;Mitochondria: powerhouse of the cell"></textarea><button id="generateQuiz" class="primary">GENERATE QUIZ</button></div><div class="card"><h3>Prompts</h3><div class="study-list" id="quizOutput">NO QUIZ GENERATED.</div></div></div></section>
+      <section id="study-formulas" class="study-panel hidden" role="tabpanel"><div class="card full"><h3>Formula search</h3><input id="formulaSearch" placeholder="Search algebra, force, circle..."><div class="study-list" id="formulaList"></div></div></section>
+      <section id="study-periodic" class="study-panel hidden" role="tabpanel"><div class="card full"><h3>Periodic table search</h3><input id="elementSearch" placeholder="Search H, oxygen, 8, gold..."><div class="file-table-wrap" id="elementTable"></div></div></section>
+      <section id="study-circle" class="study-panel hidden" role="tabpanel"><div class="grid"><div class="card"><h3>Angle</h3><div class="select-field"><label class="select-label" for="angleSelect">Common angle</label><select id="angleSelect" class="select-full">${UNIT_CIRCLE.map(row => `<option value="${row[0]}">${row[0]} · ${row[1]}</option>`).join("")}</select></div></div><div class="card"><h3>Values</h3><div class="output metric" id="angleOutput"></div></div><div class="card full"><h3>Reference table</h3><div class="file-table-wrap"><table class="file-table"><thead><tr><th>Degrees</th><th>Radians</th><th>sin</th><th>cos</th><th>tan</th></tr></thead><tbody>${UNIT_CIRCLE.map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div></div></section>
+      <section id="study-math" class="study-panel hidden" role="tabpanel"><div class="grid"><div class="card"><h3>Fraction simplify</h3><div class="row"><input id="fracNum" type="number" value="12"><span>/</span><input id="fracDen" type="number" value="18"></div><button id="simplifyFraction">SIMPLIFY</button><div class="output" id="fractionOut"></div></div><div class="card"><h3>Slope</h3><div class="split"><input id="x1" type="number" value="0"><input id="y1" type="number" value="0"></div><div class="split" style="margin-top:8px"><input id="x2" type="number" value="2"><input id="y2" type="number" value="4"></div><button id="calcSlope">CALCULATE SLOPE</button><div class="output" id="slopeOut"></div></div><div class="card full"><h3>Quadratic roots</h3><div class="row wrap"><input id="quadA" type="number" value="1"><input id="quadB" type="number" value="-3"><input id="quadC" type="number" value="2"><button id="solveQuadratic">SOLVE ax² + bx + c = 0</button></div><div class="output" id="quadraticOut"></div></div></div></section>
+    </div>`));
+  let activeTab = "flash", editId = null, reviewOrder = Store.data.flashcards.map((_, index) => index), reviewIndex = 0, flipped = false;
+  const studyState = { activeTab, quizCount: 0, formulaCount: STUDY_FORMULAS.length, elementCount: STUDY_ELEMENTS.length, math: {} };
+  const saveCards = () => { Store.save(); paintCards(); paintReview(); };
+  const paintCards = () => {
+    setHTML($("#cardList"), Store.data.flashcards.length ? Store.data.flashcards.map(card => `<div class="study-item"><span class="grow"><b>${escapeHtml(card.front || "(blank front)")}</b><small>${escapeHtml(card.back || "(blank back)")}</small></span><button data-edit-card="${card.id}">EDIT</button><button data-delete-card="${card.id}" class="danger">DELETE</button></div>`).join("") : `<div class="organizer-empty">NO FLASHCARDS YET</div>`);
+    $$("[data-edit-card]", root).forEach(button => button.onclick = () => { const card = Store.data.flashcards.find(item => item.id === button.dataset.editCard); if (!card) return; editId = card.id; $("#cardFront").value = card.front; $("#cardBack").value = card.back; $("#saveCard").textContent = "UPDATE CARD"; });
+    $$("[data-delete-card]", root).forEach(button => button.onclick = () => { Store.data.flashcards = Store.data.flashcards.filter(card => card.id !== button.dataset.deleteCard); reviewOrder = Store.data.flashcards.map((_, index) => index); reviewIndex = 0; editId = null; saveCards(); });
+  };
+  const paintReview = () => {
+    const card = Store.data.flashcards[reviewOrder[reviewIndex] ?? 0];
+    $("#reviewCard").textContent = card ? (flipped ? card.back || "(blank back)" : card.front || "(blank front)") : "NO CARDS YET";
+    studyState.flashcards = { count: Store.data.flashcards.length, reviewIndex, flipped };
+  };
+  const switchTab = id => { activeTab = id; studyState.activeTab = id; $$("[data-study-tab]", root).forEach(button => { const selected = button.dataset.studyTab === id; button.classList.toggle("active", selected); button.setAttribute("aria-selected", String(selected)); $(`#study-${button.dataset.studyTab}`, root).classList.toggle("hidden", !selected); }); };
+  const tabButtons = $$("[data-study-tab]", root);
+  tabButtons.forEach((button, index) => { button.onclick = () => switchTab(button.dataset.studyTab); button.onkeydown = event => { if (!["ArrowLeft","ArrowRight","Home","End"].includes(event.key)) return; event.preventDefault(); const next = event.key === "Home" ? 0 : event.key === "End" ? tabButtons.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabButtons.length) % tabButtons.length; tabButtons[next].focus(); tabButtons[next].click(); }; });
+  $("#saveCard").onclick = () => {
+    const now = Date.now(), front = $("#cardFront").value.trim().slice(0, 500), back = $("#cardBack").value.trim().slice(0, 1000);
+    if (!front && !back) return toast("Add a front or back");
+    if (editId) { const card = Store.data.flashcards.find(item => item.id === editId); if (card) Object.assign(card, { front, back, updatedAt: now }); }
+    else Store.data.flashcards.unshift({ id: crypto.randomUUID(), front, back, createdAt: now, updatedAt: now });
+    editId = null; $("#cardFront").value = ""; $("#cardBack").value = ""; $("#saveCard").textContent = "ADD CARD"; reviewOrder = Store.data.flashcards.map((_, index) => index); reviewIndex = 0; flipped = false; saveCards();
+  };
+  $("#clearCard").onclick = () => { editId = null; $("#cardFront").value = ""; $("#cardBack").value = ""; $("#saveCard").textContent = "ADD CARD"; };
+  $("#shuffleCards").onclick = () => { reviewOrder = Store.data.flashcards.map((_, index) => index).sort(() => Math.random() - .5); reviewIndex = 0; flipped = false; paintReview(); };
+  $("#flipCard").onclick = () => { flipped = !flipped; paintReview(); };
+  $("#prevCard").onclick = () => { if (Store.data.flashcards.length) { reviewIndex = (reviewIndex - 1 + Store.data.flashcards.length) % Store.data.flashcards.length; flipped = false; paintReview(); } };
+  $("#nextCard").onclick = () => { if (Store.data.flashcards.length) { reviewIndex = (reviewIndex + 1) % Store.data.flashcards.length; flipped = false; paintReview(); } };
+  $("#generateQuiz").onclick = () => {
+    const prompts = $("#quizNotes").value.split(/\r?\n/).map(line => line.trim()).filter(Boolean).slice(0, 80).map(line => {
+      if (/^#+\s+/.test(line)) return { q: `Explain ${line.replace(/^#+\s+/, "")}.`, a: "Use your notes to summarize the heading." };
+      if (/^[-*]\s+/.test(line)) return { q: `Review: ${line.replace(/^[-*]\s+/, "")}`, a: "Recall the key detail from this bullet." };
+      if (line.includes(":")) { const [term, ...rest] = line.split(":"); return { q: `What is ${term.trim()}?`, a: rest.join(":").trim() || "Definition missing." }; }
+      return { q: `What should you remember about ${line.slice(0, 60)}?`, a: line };
+    });
+    studyState.quizCount = prompts.length;
+    setHTML($("#quizOutput"), prompts.length ? prompts.map((prompt, index) => `<div class="study-item"><b>Q${index + 1}: ${escapeHtml(prompt.q)}</b><small>A: ${escapeHtml(prompt.a)}</small></div>`).join("") : `<div class="organizer-empty">PASTE NOTES FIRST</div>`);
+  };
+  const paintFormulas = () => { const q = $("#formulaSearch").value.toLowerCase(); const matches = STUDY_FORMULAS.filter(row => row.join(" ").toLowerCase().includes(q)); studyState.formulaCount = matches.length; setHTML($("#formulaList"), matches.length ? matches.map(([cat, name, formula]) => `<div class="study-item"><b>${escapeHtml(name)}</b><small>${escapeHtml(cat)} · ${escapeHtml(formula)}</small></div>`).join("") : `<div class="organizer-empty">NO FORMULAS MATCH</div>`); };
+  $("#formulaSearch").oninput = paintFormulas; paintFormulas();
+  const paintElements = () => { const q = $("#elementSearch").value.toLowerCase(); const matches = STUDY_ELEMENTS.filter(row => row.join(" ").toLowerCase().includes(q)); studyState.elementCount = matches.length; setHTML($("#elementTable"), matches.length ? `<table class="file-table"><thead><tr><th>#</th><th>Symbol</th><th>Name</th><th>Mass</th><th>Category</th></tr></thead><tbody>${matches.map(row => `<tr>${row.map(cell => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>` : `<div class="organizer-empty">NO ELEMENTS MATCH</div>`); };
+  $("#elementSearch").oninput = paintElements; paintElements();
+  const paintAngle = () => { const row = UNIT_CIRCLE.find(item => item[0] === $("#angleSelect").value) || UNIT_CIRCLE[0]; studyState.angle = row[0]; $("#angleOutput").textContent = `${row[0]} = ${row[1]}\nsin ${row[2]}\ncos ${row[3]}\ntan ${row[4]}`; };
+  $("#angleSelect").onchange = paintAngle; paintAngle();
+  $("#simplifyFraction").onclick = () => { const n = Number($("#fracNum").value), d = Number($("#fracDen").value); if (!Number.isFinite(n) || !Number.isFinite(d) || !d) return $("#fractionOut").textContent = "ERR: denominator cannot be 0"; const g = gcd(n, d), sign = d < 0 ? -1 : 1, out = `${sign * n / g}/${Math.abs(d / g)}`; studyState.math.fraction = out; $("#fractionOut").textContent = out; };
+  $("#calcSlope").onclick = () => { const x1 = Number($("#x1").value), y1 = Number($("#y1").value), x2 = Number($("#x2").value), y2 = Number($("#y2").value); const out = x2 === x1 ? "UNDEFINED VERTICAL LINE" : `${(y2 - y1) / (x2 - x1)}`; studyState.math.slope = out; $("#slopeOut").textContent = out; };
+  $("#solveQuadratic").onclick = () => { const a = Number($("#quadA").value), b = Number($("#quadB").value), c = Number($("#quadC").value), disc = b*b - 4*a*c; let out; if (!a) out = "ERR: a cannot be 0"; else if (disc < 0) out = `NO REAL ROOTS · discriminant ${disc}`; else if (disc === 0) out = `ONE REAL ROOT · x = ${-b/(2*a)}`; else out = `TWO REAL ROOTS · x = ${(-b + Math.sqrt(disc))/(2*a)}, ${(-b - Math.sqrt(disc))/(2*a)}`; studyState.math.quadratic = out; $("#quadraticOut").textContent = out; };
+  paintCards(); paintReview();
+  window.render_study_tools_to_text = () => JSON.stringify({ ...studyState, flashcards: { count: Store.data.flashcards.length, reviewIndex, flipped } });
+  state.cleanup.push(() => { delete window.render_study_tools_to_text; });
+}
+
 function randomPage(root) {
   setHTML(root, pageFrame("RANDOM LAB", "Generate passwords, identifiers, and fair choices.", `<div class="grid">
     <div class="card"><h3>Password generator</h3><div class="row"><input type="number" id="passLength" min="4" max="128" value="20"><button id="makePass">GENERATE</button></div><label class="item"><input type="checkbox" id="symbols" checked style="width:auto"> Include symbols</label><div class="output" id="passOut"></div></div>
@@ -2536,6 +2629,7 @@ function helpPage(root) {
     <div class="card full"><h3>Developer Tools</h3><p class="muted">Test regular expressions, generate secure hashes, inspect JWT data, preview safe Markdown, and experiment with sanitized HTML and CSS.</p></div>
     <div class="card full"><h3>Page Inspector</h3><p class="muted">Inspect the opener page title, URL, headings, links, images, scripts, DOM counts, and selected elements without modifying page content.</p></div>
     <div class="card full"><h3>File Tools</h3><p class="muted">Inspect local files offline, resize images, preview text and CSV data, format JSON, preview simple YAML-style text, and generate secure checksums.</p></div>
+    <div class="card full"><h3>Study Tools</h3><p class="muted">Create local flashcards, generate quiz prompts from notes, search formulas and elements, review unit-circle values, and solve common math helpers.</p></div>
     <div class="card full"><h3>Notes & Tasks</h3><p class="muted">Create searchable Markdown notes with tags, pins, archive and trash, plus prioritized tasks with local due dates and JSON backup.</p></div>
     <div class="card full"><h3>Customization</h3><p class="muted">Choose a Matrix, amber, cyan, or violet terminal theme; adjust digital-rain brightness and speed; switch between comfortable and compact layouts; and arrange favorite modules at the top of navigation and Quick Launch.</p></div>
     <div class="card full"><h3>Browser limitations</h3><p class="muted">Chrome blocks bookmarklets on protected pages including <code>chrome://</code>, the New Tab page, extension pages, and the Chrome Web Store. On ordinary sites, the dashboard opens in a separate resizable popup window.</p></div>
