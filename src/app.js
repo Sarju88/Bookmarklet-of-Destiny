@@ -34,6 +34,7 @@ const PAGES = [
   ["text", "¶", "Text Lab"],
   ["developer", "</>", "Developer Tools"],
   ["inspector", "⌕", "Page Inspector"],
+  ["files", "▤", "File Tools"],
   ["random", "⚄", "Random Lab"],
   ["qr", "▦", "QR Generator"],
   ["draw", "✎", "Drawing Pad"],
@@ -628,7 +629,7 @@ function navigate(page) {
 
 function renderPage() {
   const content = $("#content");
-  const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, calendar: calendarPage, worldclock: worldClockPage, colors: colorToolsPage, convert: convertPage, text: textPage, developer: developerToolsPage, inspector: inspectorPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
+  const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, calendar: calendarPage, worldclock: worldClockPage, colors: colorToolsPage, convert: convertPage, text: textPage, developer: developerToolsPage, inspector: inspectorPage, files: fileToolsPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
   setHTML(content, "");
   renderers[state.page](content);
   state.cleanup.push(enhanceSelects(content));
@@ -1413,6 +1414,12 @@ function textPage(root) {
 
 const bytesToHex = buffer => [...new Uint8Array(buffer)].map(byte => byte.toString(16).padStart(2, "0")).join("");
 const hashBytes = async (bytes, algorithm) => bytesToHex(await crypto.subtle.digest(algorithm, bytes));
+const formatBytes = bytes => bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(2)} MB`;
+const dataUrlBytes = value => {
+  const body = String(value).split(",")[1] || "";
+  return Math.floor(body.length * 3 / 4) - (body.endsWith("==") ? 2 : body.endsWith("=") ? 1 : 0);
+};
+const downloadData = (filename, mime, text) => el("a", { download: filename, href: `data:${mime};charset=utf-8,${encodeURIComponent(text)}` }).click();
 const decodeBase64Url = value => {
   if (!/^[A-Za-z0-9_-]*={0,2}$/.test(value)) throw new Error("Invalid Base64URL data");
   const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
@@ -1761,6 +1768,165 @@ function inspectorPage(root) {
   };
   paint();
   state.cleanup.push(() => { stopPicking(); clearHighlights(); });
+}
+
+function parseDelimitedText(source, delimiterSetting = "auto") {
+  const delimiter = delimiterSetting === "tab" ? "\t" : delimiterSetting === "comma" ? "," : source.split(/\r?\n/, 1)[0]?.includes("\t") ? "\t" : ",";
+  const rows = [[]];
+  let value = "", quoted = false, warnings = [];
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index], next = source[index + 1];
+    if (quoted) {
+      if (char === '"' && next === '"') { value += '"'; index++; }
+      else if (char === '"') quoted = false;
+      else value += char;
+    } else if (char === '"') quoted = true;
+    else if (char === delimiter) { rows[rows.length - 1].push(value); value = ""; }
+    else if (char === "\n") { rows[rows.length - 1].push(value); value = ""; rows.push([]); }
+    else if (char !== "\r") value += char;
+  }
+  if (quoted) warnings.push("Unclosed quoted value");
+  rows[rows.length - 1].push(value);
+  const cleanRows = rows.filter((row, index) => index < rows.length - 1 || row.some(cell => cell.trim()));
+  const width = Math.max(0, ...cleanRows.map(row => row.length));
+  cleanRows.forEach((row, index) => { if (row.length !== width) warnings.push(`Row ${index + 1} has ${row.length} columns; expected ${width}`); });
+  return { delimiter: delimiter === "\t" ? "TAB" : "COMMA", rows: cleanRows, warnings: [...new Set(warnings)] };
+}
+
+function yamlPreview(source) {
+  const lines = String(source).split(/\r?\n/).filter(line => line.trim() && !line.trim().startsWith("#"));
+  if (!lines.length) return `<div class="muted">NO YAML-LIKE CONTENT</div>`;
+  return `<div class="file-yaml-preview">${lines.slice(0, 120).map(line => {
+    const indent = line.match(/^\s*/)[0].length;
+    const trimmed = line.trim();
+    const list = trimmed.startsWith("-");
+    const [key, ...rest] = trimmed.replace(/^-+\s*/, "").split(":");
+    const value = rest.join(":").trim();
+    return `<div style="padding-left:${Math.min(48, indent * 8)}px"><b>${list ? "ITEM" : escapeHtml(key || "VALUE")}</b>${value ? `<span>${escapeHtml(value)}</span>` : `<span>${escapeHtml(list ? key : "")}</span>`}</div>`;
+  }).join("")}</div>`;
+}
+
+function fileToolsPage(root) {
+  const tabs = [["image", "IMAGE"], ["text", "TEXT"], ["csv", "CSV"], ["structured", "JSON/YAML"], ["checksum", "CHECKSUMS"]];
+  setHTML(root, pageFrame("FILE TOOLS", "Offline local-file inspection, conversion, preview, and checksums.", `<div class="file-tabs" role="tablist" aria-label="File tools">${tabs.map(([id, label], index) => `<button role="tab" aria-selected="${index === 0}" aria-controls="file-${id}" data-file-tab="${id}" class="${index === 0 ? "active" : ""}">${label}</button>`).join("")}</div>
+    <div id="filePanels">
+      <section id="file-image" class="file-panel" role="tabpanel"><div class="grid">
+        <div class="card"><h3>Image input</h3><label>Local image<input id="imageFile" type="file" accept="image/*"></label><div class="muted tiny" id="imageMeta">NO IMAGE SELECTED</div><div class="split" style="margin-top:10px"><label>Width<input id="imageWidth" type="number" min="1" max="4096"></label><label>Height<input id="imageHeight" type="number" min="1" max="4096"></label></div><div class="split" style="margin-top:10px"><div class="select-field"><label class="select-label" for="imageFormat">Format</label><select id="imageFormat" class="select-full"><option value="image/png">PNG</option><option value="image/jpeg">JPEG</option><option value="image/webp">WEBP</option></select></div><label>Quality <output id="imageQualityValue">90%</output><input id="imageQuality" type="range" min="10" max="100" value="90"></label></div><div class="row wrap" style="margin-top:10px"><button id="convertImage" class="primary">CONVERT IMAGE</button><button id="downloadImage">DOWNLOAD IMAGE</button></div></div>
+        <div class="card"><h3>Preview</h3><canvas id="imageCanvas" class="file-image-canvas" width="640" height="360"></canvas><div class="output" id="imageOutput">OUTPUT DETAILS APPEAR HERE.</div></div>
+      </div></section>
+      <section id="file-text" class="file-panel hidden" role="tabpanel"><div class="grid"><div class="card full"><h3>Text input</h3><input id="textFile" type="file" accept="text/*,.txt,.md,.csv,.json,.xml,.html,.css,.js"><div class="muted tiny" id="textFileMeta">NO FILE SELECTED</div><textarea id="fileTextContent" class="developer-editor" placeholder="Load a text file or type here. Preview is capped only by browser memory."></textarea><div class="row wrap"><button id="downloadTextFile">DOWNLOAD TEXT</button></div></div><div class="card full"><h3>Text stats</h3><div class="stat-grid"><div class="stat"><b id="fileChars">0</b>CHARS</div><div class="stat"><b id="fileWords">0</b>WORDS</div><div class="stat"><b id="fileLines">0</b>LINES</div><div class="stat"><b id="fileBytes">0</b>BYTES</div></div></div></div></section>
+      <section id="file-csv" class="file-panel hidden" role="tabpanel"><div class="grid"><div class="card full"><h3>CSV / TSV input</h3><input id="csvFile" type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values,text/plain"><div class="select-field" style="margin-top:10px"><label class="select-label" for="csvDelimiter">Delimiter</label><select id="csvDelimiter" class="select-full"><option value="auto">AUTO</option><option value="comma">COMMA</option><option value="tab">TAB</option></select></div><textarea id="csvInput" placeholder="name,score&#10;Ada,10&#10;Linus,9"></textarea><button id="parseCsv" class="primary">PREVIEW TABLE</button></div><div class="card full"><h3>CSV preview</h3><div class="output" id="csvSummary">NO CSV PARSED.</div><div class="file-table-wrap" id="csvTable"></div></div></div></section>
+      <section id="file-structured" class="file-panel hidden" role="tabpanel"><div class="grid"><div class="card"><h3>Structured text</h3><textarea id="structuredInput" class="developer-editor" placeholder='{"hello":"world"}'></textarea><div class="row wrap"><button id="formatJson" class="primary">FORMAT JSON</button><button id="previewYaml">PREVIEW YAML-LIKE</button><button id="downloadStructured">DOWNLOAD TEXT</button></div></div><div class="card"><h3>Result</h3><div class="output developer-output" id="structuredOutput">JSON or YAML-style output appears here.</div></div></div></section>
+      <section id="file-checksum" class="file-panel hidden" role="tabpanel"><div class="grid"><div class="card"><h3>File checksum</h3><input id="checksumFile" type="file"><div class="muted tiny" id="checksumMeta">NO FILE SELECTED</div><button id="runFileChecksums" class="primary">GENERATE CHECKSUMS</button></div><div class="card"><h3>Hashes</h3><div class="stack" id="fileChecksumResults"><div class="output">SHA-256, SHA-384, and SHA-512 results appear here.</div></div></div></div></section>
+    </div>`));
+  let activeTab = "image";
+  const stateText = { activeTab, image: null, text: null, csv: null, structured: null, checksums: null };
+  const switchTab = id => {
+    activeTab = id; stateText.activeTab = id;
+    $$("[data-file-tab]", root).forEach(button => {
+      const selected = button.dataset.fileTab === id;
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-selected", String(selected));
+      $(`#file-${button.dataset.fileTab}`, root).classList.toggle("hidden", !selected);
+    });
+  };
+  const tabButtons = $$("[data-file-tab]", root);
+  tabButtons.forEach((button, index) => {
+    button.onclick = () => switchTab(button.dataset.fileTab);
+    button.onkeydown = event => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const next = event.key === "Home" ? 0 : event.key === "End" ? tabButtons.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabButtons.length) % tabButtons.length;
+      tabButtons[next].focus(); tabButtons[next].click();
+    };
+  });
+
+  const imageCanvas = $("#imageCanvas"), imageCtx = imageCanvas.getContext("2d");
+  let imageElement = null, imageDataUrl = "";
+  const renderImage = () => {
+    if (!imageElement) return toast("Select an image first");
+    const width = Math.max(1, Math.min(4096, Number($("#imageWidth").value) || imageElement.naturalWidth));
+    const height = Math.max(1, Math.min(4096, Number($("#imageHeight").value) || imageElement.naturalHeight));
+    imageCanvas.width = width; imageCanvas.height = height;
+    imageCtx.clearRect(0, 0, width, height); imageCtx.drawImage(imageElement, 0, 0, width, height);
+    const format = $("#imageFormat").value, quality = Number($("#imageQuality").value) / 100;
+    imageDataUrl = imageCanvas.toDataURL(format, quality);
+    const outputBytes = dataUrlBytes(imageDataUrl);
+    stateText.image = { name: $("#imageFile").files[0]?.name || "", original: `${imageElement.naturalWidth}×${imageElement.naturalHeight}`, output: `${width}×${height}`, format, outputBytes };
+    $("#imageOutput").textContent = `ORIGINAL: ${stateText.image.original}\nOUTPUT: ${stateText.image.output}\nFORMAT: ${format}\nESTIMATED SIZE: ${formatBytes(outputBytes)}`;
+  };
+  $("#imageFile").onchange = async () => {
+    const file = $("#imageFile").files[0]; if (!file) return;
+    $("#imageMeta").textContent = `${file.name} · ${formatBytes(file.size)} · ${file.type || "UNKNOWN TYPE"}`;
+    const reader = new window.FileReader();
+    reader.onload = () => {
+      imageElement = new window.Image();
+      imageElement.onload = () => { $("#imageWidth").value = imageElement.naturalWidth; $("#imageHeight").value = imageElement.naturalHeight; renderImage(); };
+      imageElement.onerror = () => toast("Image could not be loaded");
+      imageElement.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  };
+  $("#imageQuality").oninput = event => $("#imageQualityValue").textContent = `${event.target.value}%`;
+  $("#convertImage").onclick = renderImage;
+  $("#downloadImage").onclick = () => imageDataUrl ? el("a", { download: `destiny-image.${$("#imageFormat").value.split("/")[1].replace("jpeg", "jpg")}`, href: imageDataUrl }).click() : toast("Convert an image first");
+
+  const updateTextStats = () => {
+    const value = $("#fileTextContent").value, bytes = new TextEncoder().encode(value).length;
+    $("#fileChars").textContent = value.length; $("#fileWords").textContent = value.trim() ? value.trim().split(/\s+/).length : 0; $("#fileLines").textContent = value ? value.split("\n").length : 0; $("#fileBytes").textContent = bytes;
+    stateText.text = { chars: value.length, words: Number($("#fileWords").textContent), lines: Number($("#fileLines").textContent), bytes };
+  };
+  $("#textFile").onchange = async () => {
+    const file = $("#textFile").files[0]; if (!file) return;
+    $("#textFileMeta").textContent = `${file.name} · ${formatBytes(file.size)} · ${file.type || "UNKNOWN TYPE"}`;
+    $("#fileTextContent").value = await file.text();
+    updateTextStats();
+  };
+  $("#fileTextContent").oninput = updateTextStats;
+  $("#downloadTextFile").onclick = () => downloadData("destiny-text.txt", "text/plain", $("#fileTextContent").value);
+  updateTextStats();
+
+  const paintCsv = result => {
+    const [headers = [], ...rows] = result.rows, shown = rows.slice(0, 50);
+    $("#csvSummary").textContent = result.rows.length ? `DELIMITER: ${result.delimiter}\nROWS: ${Math.max(0, result.rows.length - 1)}\nCOLUMNS: ${headers.length}\nWARNINGS: ${result.warnings.join("; ") || "NONE"}` : "NO CSV PARSED.";
+    setHTML($("#csvTable"), result.rows.length ? `<table class="file-table"><thead><tr>${headers.map(cell => `<th>${escapeHtml(cell)}</th>`).join("")}</tr></thead><tbody>${shown.map(row => `<tr>${headers.map((_, index) => `<td>${escapeHtml(row[index] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table>` : "");
+    stateText.csv = { rows: Math.max(0, result.rows.length - 1), columns: headers.length, delimiter: result.delimiter, warnings: result.warnings };
+  };
+  $("#csvFile").onchange = async () => { const file = $("#csvFile").files[0]; if (file) { $("#csvInput").value = await file.text(); paintCsv(parseDelimitedText($("#csvInput").value, $("#csvDelimiter").value)); } };
+  $("#parseCsv").onclick = () => paintCsv(parseDelimitedText($("#csvInput").value, $("#csvDelimiter").value));
+
+  $("#formatJson").onclick = () => {
+    try {
+      const formatted = JSON.stringify(JSON.parse($("#structuredInput").value), null, 2);
+      $("#structuredInput").value = formatted; $("#structuredOutput").textContent = formatted;
+      stateText.structured = { mode: "json", valid: true };
+    } catch (error) {
+      $("#structuredOutput").textContent = `JSON ERROR: ${error.message}`;
+      stateText.structured = { mode: "json", valid: false, error: error.message };
+    }
+  };
+  $("#previewYaml").onclick = () => { setHTML($("#structuredOutput"), yamlPreview($("#structuredInput").value)); stateText.structured = { mode: "yaml-preview", lines: $("#structuredInput").value.split(/\r?\n/).filter(line => line.trim()).length }; };
+  $("#downloadStructured").onclick = () => downloadData("destiny-structured.txt", "text/plain", $("#structuredInput").value);
+
+  $("#checksumFile").onchange = () => { const file = $("#checksumFile").files[0]; $("#checksumMeta").textContent = file ? `${file.name} · ${formatBytes(file.size)} · ${file.type || "UNKNOWN TYPE"}` : "NO FILE SELECTED"; };
+  $("#runFileChecksums").onclick = async () => {
+    const file = $("#checksumFile").files[0]; if (!file) return toast("Select a file first");
+    const button = $("#runFileChecksums"); button.disabled = true; button.textContent = "HASHING...";
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer()), algorithms = ["SHA-256", "SHA-384", "SHA-512"];
+      const values = await Promise.all(algorithms.map(algorithm => hashBytes(bytes, algorithm)));
+      stateText.checksums = Object.fromEntries(algorithms.map((algorithm, index) => [algorithm, values[index]]));
+      setHTML($("#fileChecksumResults"), algorithms.map((algorithm, index) => `<div><div class="developer-result-head"><b>${algorithm}</b><button data-copy-file-hash="${index}">COPY</button></div><div class="output developer-hash">${values[index]}</div></div>`).join(""));
+      $$("[data-copy-file-hash]", root).forEach(copyButton => copyButton.onclick = async () => { try { await navigator.clipboard.writeText(values[Number(copyButton.dataset.copyFileHash)]); toast("Copied"); } catch { toast("Copy failed"); } });
+    } catch (error) {
+      stateText.checksums = { error: error.message };
+      $("#fileChecksumResults").textContent = `ERROR: ${error.message}`;
+    } finally {
+      button.disabled = false; button.textContent = "GENERATE CHECKSUMS";
+    }
+  };
+  window.render_file_tools_to_text = () => JSON.stringify(stateText);
+  state.cleanup.push(() => { delete window.render_file_tools_to_text; });
 }
 
 function randomPage(root) {
@@ -2369,6 +2535,7 @@ function helpPage(root) {
     <div class="card full"><h3>Color Tools</h3><p class="muted">Convert HEX, RGB, and HSL; generate palettes; check WCAG contrast; and preview approximate color-vision simulations.</p></div>
     <div class="card full"><h3>Developer Tools</h3><p class="muted">Test regular expressions, generate secure hashes, inspect JWT data, preview safe Markdown, and experiment with sanitized HTML and CSS.</p></div>
     <div class="card full"><h3>Page Inspector</h3><p class="muted">Inspect the opener page title, URL, headings, links, images, scripts, DOM counts, and selected elements without modifying page content.</p></div>
+    <div class="card full"><h3>File Tools</h3><p class="muted">Inspect local files offline, resize images, preview text and CSV data, format JSON, preview simple YAML-style text, and generate secure checksums.</p></div>
     <div class="card full"><h3>Notes & Tasks</h3><p class="muted">Create searchable Markdown notes with tags, pins, archive and trash, plus prioritized tasks with local due dates and JSON backup.</p></div>
     <div class="card full"><h3>Customization</h3><p class="muted">Choose a Matrix, amber, cyan, or violet terminal theme; adjust digital-rain brightness and speed; switch between comfortable and compact layouts; and arrange favorite modules at the top of navigation and Quick Launch.</p></div>
     <div class="card full"><h3>Browser limitations</h3><p class="muted">Chrome blocks bookmarklets on protected pages including <code>chrome://</code>, the New Tab page, extension pages, and the Chrome Web Store. On ordinary sites, the dashboard opens in a separate resizable popup window.</p></div>

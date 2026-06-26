@@ -645,6 +645,72 @@ test("developer tools safely inspect regex, hashes, JWT, Markdown, and scratch c
   });
 });
 
+test("file tools inspect and transform local files offline", async () => {
+  await withBrowser(async ({ page }) => {
+    await page.goto(`${base}/preview.html?page=files`);
+    const fileState = () => page.evaluate(() => JSON.parse(window.render_file_tools_to_text()));
+    assert.equal((await fileState()).activeTab, "image");
+    assert.equal(await page.locator("[data-file-tab]").count(), 5);
+
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=", "base64");
+    await page.locator("#imageFile").setInputFiles({ name: "pixel.png", mimeType: "image/png", buffer: png });
+    await page.waitForFunction(() => JSON.parse(window.render_file_tools_to_text()).image?.original);
+    await page.locator("#imageWidth").fill("2");
+    await page.locator("#imageHeight").fill("3");
+    await page.locator("#imageFormat").selectOption("image/jpeg");
+    await page.locator("#imageQuality").fill("80");
+    await page.locator("#convertImage").click();
+    await page.waitForFunction(() => JSON.parse(window.render_file_tools_to_text()).image?.output === "2×3");
+    assert.equal((await fileState()).image.format, "image/jpeg");
+    const imageDownload = page.waitForEvent("download");
+    await page.locator("#downloadImage").click();
+    assert.equal((await imageDownload).suggestedFilename(), "destiny-image.jpg");
+
+    await page.locator('[data-file-tab="text"]').click();
+    await page.locator("#textFile").setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("one two\nthree") });
+    await page.waitForFunction(() => JSON.parse(window.render_file_tools_to_text()).text?.words === 3);
+    assert.equal((await fileState()).text.lines, 2);
+    await page.locator("#fileTextContent").fill("edited text\nfour words");
+    assert.equal((await fileState()).text.words, 4);
+    const textDownload = page.waitForEvent("download");
+    await page.locator("#downloadTextFile").click();
+    assert.equal((await textDownload).suggestedFilename(), "destiny-text.txt");
+
+    await page.locator('[data-file-tab="csv"]').click();
+    await page.locator("#csvInput").fill('name,score\n"Ada, A",10\nLinus,9,extra');
+    await page.locator("#parseCsv").click();
+    assert.equal((await fileState()).csv.rows, 2);
+    assert.equal((await fileState()).csv.columns, 2);
+    assert.match((await fileState()).csv.warnings.join(" "), /Row 1.*expected 3/);
+    assert.match(await page.locator("#csvTable").textContent(), /Ada, A/);
+    await page.locator("#csvInput").fill("");
+    await page.locator("#parseCsv").click();
+    assert.equal((await fileState()).csv.rows, 0);
+
+    await page.locator('[data-file-tab="structured"]').click();
+    await page.locator("#structuredInput").fill('{"b":2,"a":[1,true]}');
+    await page.locator("#formatJson").click();
+    assert.equal((await fileState()).structured.valid, true);
+    assert.match(await page.locator("#structuredOutput").textContent(), /"a":/);
+    await page.locator("#structuredInput").fill("{bad");
+    await page.locator("#formatJson").click();
+    assert.equal((await fileState()).structured.valid, false);
+    await page.locator("#structuredInput").fill("title: Test\nitems:\n  - one");
+    await page.locator("#previewYaml").click();
+    assert.equal((await fileState()).structured.mode, "yaml-preview");
+    assert.match(await page.locator("#structuredOutput").textContent(), /title/);
+
+    await page.locator('[data-file-tab="checksum"]').click();
+    await page.locator("#checksumFile").setInputFiles({ name: "abc.txt", mimeType: "text/plain", buffer: Buffer.from("abc") });
+    await page.locator("#runFileChecksums").click();
+    await page.waitForFunction(() => JSON.parse(window.render_file_tools_to_text()).checksums?.["SHA-512"]);
+    assert.equal((await fileState()).checksums["SHA-256"], "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    await capture(page, `${shots}/file-tools.png`);
+    await page.click('[data-page="home"]');
+    assert.equal(await page.evaluate(() => typeof window.render_file_tools_to_text), "undefined");
+  });
+});
+
 test("bookmarklet opens a reusable self-contained popup on strict CSP pages", async () => {
   await withBrowser(async ({ context, page }) => {
     const raw = await readFile("dist/bookmarklet.txt", "utf8");
@@ -665,7 +731,7 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     assert.equal(context.pages().length, 2);
     assert.equal(await panel.locator("html").getAttribute("data-ready"), "1");
     assert.equal(panel.url(), "about:blank");
-    for (const module of ["calculator", "organizer", "time", "calendar", "worldclock", "colors", "convert", "text", "developer", "inspector", "random", "qr", "draw", "page", "games", "settings", "help", "home"]) {
+    for (const module of ["calculator", "organizer", "time", "calendar", "worldclock", "colors", "convert", "text", "developer", "inspector", "files", "random", "qr", "draw", "page", "games", "settings", "help", "home"]) {
       await panel.locator(`[data-page="${module}"]`).click();
       await panel.locator(".page h2").waitFor();
       assert.ok((await panel.locator(".page h2").textContent()).trim().length > 0);
@@ -696,6 +762,10 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     assert.match(await panel.locator("#selectedElement").textContent(), /SELECTOR: #dark-button/);
     assert.match(await panel.locator("#selectedElement").textContent(), /Application button/);
     await capture(panel, `${shots}/inspector-popup.png`);
+    await panel.locator('[data-page="files"]').click();
+    assert.match(await panel.locator(".page h2").textContent(), /FILE TOOLS/);
+    assert.equal(await panel.evaluate(() => JSON.parse(window.render_file_tools_to_text()).activeTab), "image");
+    await capture(panel, `${shots}/file-tools-popup.png`);
     await panel.locator('[data-page="organizer"]').click();
     await panel.locator("#newNote").click();
     await panel.locator("#noteTitle").fill("Popup note");

@@ -13,6 +13,7 @@ A self-contained Chrome bookmarklet that opens a centered popup dashboard with M
 - HEX/RGB/HSL conversion, palettes, WCAG contrast, and color-vision previews
 - Regex testing, secure text/file hashes, JWT inspection, safe Markdown, and an isolated HTML/CSS scratchpad
 - Page inspector for headings, links, images, scripts, DOM counts, metadata export, and element picking
+- Offline file tools for image resize/export, text viewing, CSV preview, JSON formatting, YAML-style preview, and checksums
 - Unit and USD/INR conversion
 - Text, random, QR, drawing, and page-control tools
 - Snake Battle, 2048, Minesweeper Race, Tic-Tac-Toe, Pong, Breakout, Connect Four, Tron, Space Invaders, and Memory Match
