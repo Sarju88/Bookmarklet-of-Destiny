@@ -797,6 +797,103 @@ test("study tools manage flashcards, quizzes, references, and math helpers", asy
   });
 });
 
+test("productivity tools manage snippets, checklist, focus, links, habits, and reset", async () => {
+  await withBrowser(async ({ page }) => {
+    await page.goto(`${base}/preview.html?page=productivity`);
+    const productivityState = () => page.evaluate(() => JSON.parse(window.render_productivity_to_text()));
+    assert.equal((await productivityState()).activeTab, "dashboard");
+    assert.equal(await page.locator("[data-productivity-tab]").count(), 6);
+
+    await page.locator('[data-productivity-tab="clip"]').click();
+    await page.locator("#snippetTitle").fill("Quote");
+    await page.locator("#snippetText").fill("Stay focused");
+    await page.locator("#saveSnippet").click();
+    assert.equal((await productivityState()).snippets, 1);
+    await page.locator("[data-pin-snippet]").click();
+    assert.match(await page.locator("#snippetList").textContent(), /★ Quote/);
+    await page.locator("[data-copy-snippet]").click();
+    await page.locator("[data-delete-snippet]").click();
+    assert.equal((await productivityState()).snippets, 0);
+    await page.locator("#snippetTitle").fill("Plan");
+    await page.locator("#snippetText").fill("One more saved item");
+    await page.locator("#saveSnippet").click();
+    await page.locator("#clearSnippets").click();
+    assert.equal((await productivityState()).snippets, 0);
+
+    await page.locator('[data-productivity-tab="checklist"]').click();
+    await page.locator("#checkText").fill("Finish math homework");
+    await page.locator("#addCheck").click();
+    assert.equal((await productivityState()).checklist.open, 1);
+    await page.locator("[data-check-edit]").fill("Finish science homework");
+    await page.locator("[data-check-edit]").dispatchEvent("change");
+    assert.match(await page.locator("[data-check-edit]").inputValue(), /science/);
+    await page.locator("[data-check-done]").check();
+    assert.equal((await productivityState()).checklist.open, 0);
+    await page.locator("#clearDoneChecks").click();
+    assert.equal((await productivityState()).checklist.total, 0);
+    await page.locator("#checkText").fill("Pack backpack");
+    await page.locator("#addCheck").click();
+
+    await page.locator('[data-productivity-tab="links"]').click();
+    await page.locator("#linkTitle").fill("Bad link");
+    await page.locator("#linkUrl").fill("javascript:alert(1)");
+    await page.locator("#saveLink").click();
+    assert.equal((await productivityState()).links, 0);
+    assert.match(await page.locator("#linkError").textContent(), /ERROR/);
+    await page.locator("#linkTitle").fill("Example");
+    await page.locator("#linkUrl").fill("https://example.com/path");
+    await page.locator("#saveLink").click();
+    assert.equal((await productivityState()).links, 1);
+    await page.locator("[data-copy-link]").click();
+    await page.locator("[data-edit-link]").click();
+    await page.locator("#linkTitle").fill("Example Edited");
+    await page.locator("#saveLink").click();
+    assert.match(await page.locator("#linkList").textContent(), /Example Edited/);
+
+    await page.locator('[data-productivity-tab="habits"]').click();
+    await page.locator("#habitName").fill("Read");
+    await page.locator("#addHabit").click();
+    assert.equal((await productivityState()).habits.length, 1);
+    await page.locator("[data-toggle-habit]").click();
+    assert.equal((await productivityState()).habits[0].streak, 1);
+    assert.match(await page.locator("#habitList").textContent(), /●/);
+    await page.locator("[data-toggle-habit]").click();
+    assert.equal((await productivityState()).habits[0].streak, 0);
+
+    await page.locator('[data-productivity-tab="focus"]').click();
+    await page.locator("#focusMinutes").fill("0.02");
+    await page.locator("#startFocus").click();
+    assert.equal((await productivityState()).focus.running, true);
+    await page.locator("#pauseFocus").click();
+    assert.equal((await productivityState()).focus.running, false);
+    await page.locator("#resetFocus").click();
+    await page.locator("#startFocus").click();
+    await page.waitForFunction(() => JSON.parse(window.render_productivity_to_text()).focus.completed >= 1, null, { timeout: 3000 });
+    assert.match(await page.locator("#focusStatus").textContent(), /COMPLETE/);
+
+    await page.locator('[data-productivity-tab="dashboard"]').click();
+    const summary = await productivityState();
+    assert.equal(summary.dashboard.openChecks, 1);
+    assert.equal(summary.dashboard.dueHabits, 1);
+    assert.equal(summary.dashboard.links, 1);
+    await capture(page, `${shots}/productivity.png`);
+
+    await page.reload();
+    await page.locator('[data-page="productivity"]').click();
+    assert.equal((await productivityState()).links, 1);
+    assert.equal((await productivityState()).checklist.open, 1);
+    await page.locator('[data-page="home"]').click();
+    assert.equal(await page.evaluate(() => typeof window.render_productivity_to_text), "undefined");
+
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator('[data-page="settings"]').click();
+    await page.locator("#resetData").click();
+    await page.locator('[data-page="productivity"]').click();
+    assert.equal((await productivityState()).links, 0);
+    assert.equal((await productivityState()).checklist.total, 0);
+  });
+});
+
 test("bookmarklet opens a reusable self-contained popup on strict CSP pages", async () => {
   await withBrowser(async ({ context, page }) => {
     const raw = await readFile("dist/bookmarklet.txt", "utf8");
@@ -817,7 +914,7 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     assert.equal(context.pages().length, 2);
     assert.equal(await panel.locator("html").getAttribute("data-ready"), "1");
     assert.equal(panel.url(), "about:blank");
-    for (const module of ["calculator", "organizer", "time", "calendar", "worldclock", "colors", "convert", "text", "developer", "inspector", "files", "study", "random", "qr", "draw", "page", "games", "settings", "help", "home"]) {
+    for (const module of ["calculator", "organizer", "time", "calendar", "worldclock", "colors", "convert", "text", "developer", "inspector", "files", "study", "productivity", "random", "qr", "draw", "page", "games", "settings", "help", "home"]) {
       await panel.locator(`[data-page="${module}"]`).click();
       await panel.locator(".page h2").waitFor();
       assert.ok((await panel.locator(".page h2").textContent()).trim().length > 0);
@@ -856,6 +953,10 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     assert.match(await panel.locator(".page h2").textContent(), /STUDY TOOLS/);
     assert.equal(await panel.evaluate(() => JSON.parse(window.render_study_tools_to_text()).activeTab), "flash");
     await capture(panel, `${shots}/study-tools-popup.png`);
+    await panel.locator('[data-page="productivity"]').click();
+    assert.match(await panel.locator(".page h2").textContent(), /PRODUCTIVITY/);
+    assert.equal(await panel.evaluate(() => JSON.parse(window.render_productivity_to_text()).activeTab), "dashboard");
+    await capture(panel, `${shots}/productivity-popup.png`);
     await panel.locator('[data-page="organizer"]').click();
     await panel.locator("#newNote").click();
     await panel.locator("#noteTitle").fill("Popup note");

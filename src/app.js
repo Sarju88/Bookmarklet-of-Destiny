@@ -36,6 +36,7 @@ const PAGES = [
   ["inspector", "⌕", "Page Inspector"],
   ["files", "▤", "File Tools"],
   ["study", "⌬", "Study Tools"],
+  ["productivity", "▧", "Productivity"],
   ["random", "⚄", "Random Lab"],
   ["qr", "▦", "QR Generator"],
   ["draw", "✎", "Drawing Pad"],
@@ -60,6 +61,11 @@ const defaults = {
   organizerMigrated: false,
   todos: [],
   flashcards: [],
+  clipboardSnippets: [],
+  sessionChecklist: [],
+  quickBookmarks: [],
+  habits: [],
+  focusStats: { completed: 0, minutes: 0, lastCompletedAt: 0 },
   calcHistory: [],
   scores: { snake: 0, "2048": 0, mines: 0, ttt: 0, pong: 0, breakout: 0, connect4: 0, tron: 0, invaders: 0, memory: 0, chess: 0, checkers: 0 },
   settings: {
@@ -92,6 +98,11 @@ const Store = {
     if (!Array.isArray(this.data.noteTags)) this.data.noteTags = [];
     if (!Array.isArray(this.data.todos)) this.data.todos = [];
     if (!Array.isArray(this.data.flashcards)) this.data.flashcards = [];
+    if (!Array.isArray(this.data.clipboardSnippets)) this.data.clipboardSnippets = [];
+    if (!Array.isArray(this.data.sessionChecklist)) this.data.sessionChecklist = [];
+    if (!Array.isArray(this.data.quickBookmarks)) this.data.quickBookmarks = [];
+    if (!Array.isArray(this.data.habits)) this.data.habits = [];
+    if (!this.data.focusStats || typeof this.data.focusStats !== "object") this.data.focusStats = structuredClone(defaults.focusStats);
     let changed = !this.data.todos.every(todo => todo.id && todo.priority && "dueDate" in todo && todo.createdAt && todo.updatedAt);
     if (!this.data.organizerMigrated) {
       if (String(this.data.notes || "").trim() && !this.data.notesV2.length) {
@@ -127,6 +138,40 @@ const Store = {
       createdAt: Number(card.createdAt) || now,
       updatedAt: Number(card.updatedAt) || now
     })).filter(card => card.front || card.back);
+    this.data.clipboardSnippets = this.data.clipboardSnippets.map(snippet => ({
+      id: snippet.id || crypto.randomUUID(),
+      title: String(snippet.title || "Snippet").slice(0, 80),
+      text: String(snippet.text || "").slice(0, 4000),
+      pinned: !!snippet.pinned,
+      createdAt: Number(snippet.createdAt) || now,
+      updatedAt: Number(snippet.updatedAt) || now
+    })).filter(snippet => snippet.text);
+    this.data.sessionChecklist = this.data.sessionChecklist.map(item => ({
+      id: item.id || crypto.randomUUID(),
+      text: String(item.text || "").slice(0, 300),
+      done: !!item.done,
+      createdAt: Number(item.createdAt) || now,
+      updatedAt: Number(item.updatedAt) || now
+    })).filter(item => item.text);
+    this.data.quickBookmarks = this.data.quickBookmarks.map(link => ({
+      id: link.id || crypto.randomUUID(),
+      title: String(link.title || "Bookmark").slice(0, 100),
+      url: /^https?:\/\//i.test(String(link.url || "")) ? String(link.url).slice(0, 1000) : "",
+      createdAt: Number(link.createdAt) || now,
+      updatedAt: Number(link.updatedAt) || now
+    })).filter(link => link.url);
+    this.data.habits = this.data.habits.map(habit => ({
+      id: habit.id || crypto.randomUUID(),
+      name: String(habit.name || "").slice(0, 120),
+      completions: Array.isArray(habit.completions) ? [...new Set(habit.completions.filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date)))] : [],
+      createdAt: Number(habit.createdAt) || now,
+      updatedAt: Number(habit.updatedAt) || now
+    })).filter(habit => habit.name);
+    this.data.focusStats = {
+      completed: Math.max(0, Number(this.data.focusStats.completed) || 0),
+      minutes: Math.max(0, Number(this.data.focusStats.minutes) || 0),
+      lastCompletedAt: Math.max(0, Number(this.data.focusStats.lastCompletedAt) || 0)
+    };
     if (changed) this.save();
   },
   save() {
@@ -639,7 +684,7 @@ function navigate(page) {
 
 function renderPage() {
   const content = $("#content");
-  const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, calendar: calendarPage, worldclock: worldClockPage, colors: colorToolsPage, convert: convertPage, text: textPage, developer: developerToolsPage, inspector: inspectorPage, files: fileToolsPage, study: studyToolsPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
+  const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, calendar: calendarPage, worldclock: worldClockPage, colors: colorToolsPage, convert: convertPage, text: textPage, developer: developerToolsPage, inspector: inspectorPage, files: fileToolsPage, study: studyToolsPage, productivity: productivityPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
   setHTML(content, "");
   renderers[state.page](content);
   state.cleanup.push(enhanceSelects(content));
@@ -2022,6 +2067,143 @@ function studyToolsPage(root) {
   state.cleanup.push(() => { delete window.render_study_tools_to_text; });
 }
 
+const localDateString = (date = new Date()) => {
+  const copy = new Date(date);
+  copy.setMinutes(copy.getMinutes() - copy.getTimezoneOffset());
+  return copy.toISOString().slice(0, 10);
+};
+const lastSevenDates = () => Array.from({ length: 7 }, (_, index) => {
+  const date = new Date();
+  date.setDate(date.getDate() - (6 - index));
+  return localDateString(date);
+});
+const habitStreak = habit => {
+  let streak = 0;
+  const done = new Set(habit.completions || []);
+  for (let offset = 0; offset < 365; offset++) {
+    const date = new Date();
+    date.setDate(date.getDate() - offset);
+    if (!done.has(localDateString(date))) break;
+    streak++;
+  }
+  return streak;
+};
+const validHttpUrl = value => {
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch {
+    return "";
+  }
+};
+
+function productivityPage(root) {
+  const tabs = [["dashboard", "DASHBOARD"], ["clip", "CLIPBOARD"], ["checklist", "CHECKLIST"], ["focus", "FOCUS"], ["links", "BOOKMARKS"], ["habits", "HABITS"]];
+  setHTML(root, pageFrame("PRODUCTIVITY", "Offline daily planning, snippets, quick links, habits, and focus sessions.", `<div class="productivity-tabs" role="tablist" aria-label="Productivity tools">${tabs.map(([id, label], index) => `<button role="tab" aria-selected="${index === 0}" aria-controls="productivity-${id}" data-productivity-tab="${id}" class="${index === 0 ? "active" : ""}">${label}</button>`).join("")}</div>
+    <div id="productivityPanels">
+      <section id="productivity-dashboard" class="productivity-panel" role="tabpanel"><div class="grid">
+        <div class="card"><h3>Today</h3><div class="metric" id="dailyDate"></div><div class="list" id="dailySummary"></div></div>
+        <div class="card"><h3>Quick links</h3><div class="productivity-list" id="dailyLinks"></div></div>
+        <div class="card full"><h3>Next actions</h3><div class="productivity-list" id="dailyActions"></div></div>
+      </div></section>
+      <section id="productivity-clip" class="productivity-panel hidden" role="tabpanel"><div class="grid"><div class="card"><h3>Save snippet</h3><input id="snippetTitle" placeholder="Title"><textarea id="snippetText" class="developer-editor" placeholder="Paste or type text to save inside this popup."></textarea><div class="row wrap"><button id="saveSnippet" class="primary">SAVE SNIPPET</button><button id="clearSnippets" class="danger">CLEAR ALL</button></div></div><div class="card"><h3>Saved snippets</h3><div class="productivity-list" id="snippetList"></div></div></div></section>
+      <section id="productivity-checklist" class="productivity-panel hidden" role="tabpanel"><div class="card full"><h3>Session checklist</h3><div class="row wrap"><input id="checkText" placeholder="Next task"><button id="addCheck" class="primary">ADD ITEM</button><button id="clearDoneChecks">CLEAR COMPLETED</button></div><div class="productivity-list" id="checkList"></div></div></section>
+      <section id="productivity-focus" class="productivity-panel hidden" role="tabpanel"><div class="grid"><div class="card"><h3>Focus timer</h3><label>Minutes<input id="focusMinutes" type="number" min="0.01" max="240" step="0.01" value="25"></label><div class="timer-display" id="focusDisplay">25:00</div><div class="row wrap"><button id="startFocus" class="primary">START</button><button id="pauseFocus">PAUSE</button><button id="resetFocus">RESET</button></div><div class="output" id="focusStatus">READY</div></div><div class="card"><h3>Stats</h3><div class="list" id="focusStats"></div></div></div></section>
+      <section id="productivity-links" class="productivity-panel hidden" role="tabpanel"><div class="grid"><div class="card"><h3>Save quick bookmark</h3><input id="linkTitle" placeholder="Title"><input id="linkUrl" placeholder="https://example.com"><div class="row wrap"><button id="saveLink" class="primary">SAVE LINK</button><button id="clearLinkEdit">CLEAR</button></div><div class="output" id="linkError">ONLY HTTP AND HTTPS LINKS ARE SAVED.</div></div><div class="card"><h3>Saved links</h3><div class="productivity-list" id="linkList"></div></div></div></section>
+      <section id="productivity-habits" class="productivity-panel hidden" role="tabpanel"><div class="card full"><h3>Habit tracker</h3><div class="row wrap"><input id="habitName" placeholder="Habit name"><button id="addHabit" class="primary">ADD HABIT</button></div><div class="productivity-list" id="habitList"></div></div></section>
+    </div>`));
+  let activeTab = "dashboard", editingLink = null, focusInterval = null, focusRemaining = 25 * 60, focusRunning = false, focusInitial = 25 * 60;
+  const productivityState = { activeTab, focus: { running: false, remaining: focusRemaining }, dashboard: {} };
+  const today = () => localDateString();
+  const save = () => { Store.save(); paintAll(); };
+  const itemTime = item => new Date(item.updatedAt || item.createdAt || Date.now()).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const copyText = async value => { try { await navigator.clipboard.writeText(value); toast("Copied"); } catch { toast("Copy failed"); } };
+  const stopFocusInterval = () => { if (focusInterval) clearInterval(focusInterval); focusInterval = null; };
+  const paintFocus = () => {
+    const seconds = Math.max(0, Math.ceil(focusRemaining));
+    $("#focusDisplay").textContent = formatTime(seconds);
+    $("#focusStatus").textContent = focusRunning ? "FOCUS ACTIVE" : seconds <= 0 ? "SESSION COMPLETE" : "READY";
+    setHTML($("#focusStats"), `<div class="item"><span class="grow">Completed sessions</span><b>${Store.data.focusStats.completed}</b></div><div class="item"><span class="grow">Completed minutes</span><b>${Store.data.focusStats.minutes}</b></div><div class="item"><span class="grow">Last complete</span><b>${Store.data.focusStats.lastCompletedAt ? new Date(Store.data.focusStats.lastCompletedAt).toLocaleDateString() : "NEVER"}</b></div>`);
+    productivityState.focus = { running: focusRunning, remaining: seconds, completed: Store.data.focusStats.completed };
+  };
+  const completeFocus = () => {
+    stopFocusInterval(); focusRunning = false; focusRemaining = 0;
+    Store.data.focusStats.completed++;
+    Store.data.focusStats.minutes += Math.round(focusInitial / 60);
+    Store.data.focusStats.lastCompletedAt = Date.now();
+    Store.save(); paintFocus(); paintDashboard();
+  };
+  const paintSnippets = () => {
+    const snippets = [...Store.data.clipboardSnippets].sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
+    setHTML($("#snippetList"), snippets.length ? snippets.map(snippet => `<div class="productivity-item"><span class="grow"><b>${snippet.pinned ? "★ " : ""}${escapeHtml(snippet.title)}</b><small>${escapeHtml(snippet.text.slice(0, 180))}</small><small>${itemTime(snippet)}</small></span><button data-copy-snippet="${snippet.id}">COPY</button><button data-pin-snippet="${snippet.id}">${snippet.pinned ? "UNPIN" : "PIN"}</button><button data-delete-snippet="${snippet.id}" class="danger">DELETE</button></div>`).join("") : `<div class="organizer-empty">NO SNIPPETS SAVED</div>`);
+    $$("[data-copy-snippet]", root).forEach(button => button.onclick = () => copyText(Store.data.clipboardSnippets.find(item => item.id === button.dataset.copySnippet)?.text || ""));
+    $$("[data-pin-snippet]", root).forEach(button => button.onclick = () => { const item = Store.data.clipboardSnippets.find(snippet => snippet.id === button.dataset.pinSnippet); if (item) { item.pinned = !item.pinned; item.updatedAt = Date.now(); save(); } });
+    $$("[data-delete-snippet]", root).forEach(button => button.onclick = () => { Store.data.clipboardSnippets = Store.data.clipboardSnippets.filter(snippet => snippet.id !== button.dataset.deleteSnippet); save(); });
+  };
+  const paintChecks = () => {
+    setHTML($("#checkList"), Store.data.sessionChecklist.length ? Store.data.sessionChecklist.map(item => `<div class="productivity-item"><label class="row grow"><input type="checkbox" data-check-done="${item.id}" ${item.done ? "checked" : ""} style="width:auto"><input data-check-edit="${item.id}" value="${escapeHtml(item.text)}"></label><button data-delete-check="${item.id}" class="danger">DELETE</button></div>`).join("") : `<div class="organizer-empty">NO SESSION ITEMS</div>`);
+    $$("[data-check-done]", root).forEach(input => input.onchange = () => { const item = Store.data.sessionChecklist.find(check => check.id === input.dataset.checkDone); if (item) { item.done = input.checked; item.updatedAt = Date.now(); Store.save(); paintDashboard(); } });
+    $$("[data-check-edit]", root).forEach(input => input.onchange = () => { const item = Store.data.sessionChecklist.find(check => check.id === input.dataset.checkEdit); if (!item) return; item.text = input.value.trim().slice(0, 300); item.updatedAt = Date.now(); if (!item.text) { Store.data.sessionChecklist = Store.data.sessionChecklist.filter(check => check.id !== item.id); save(); } else { Store.save(); paintDashboard(); } });
+    $$("[data-delete-check]", root).forEach(button => button.onclick = () => { Store.data.sessionChecklist = Store.data.sessionChecklist.filter(check => check.id !== button.dataset.deleteCheck); save(); });
+  };
+  const paintLinks = () => {
+    setHTML($("#linkList"), Store.data.quickBookmarks.length ? Store.data.quickBookmarks.map(link => `<div class="productivity-item"><span class="grow"><b>${escapeHtml(link.title)}</b><small>${escapeHtml(link.url)}</small></span><button data-open-link="${link.id}">OPEN</button><button data-copy-link="${link.id}">COPY</button><button data-edit-link="${link.id}">EDIT</button><button data-delete-link="${link.id}" class="danger">DELETE</button></div>`).join("") : `<div class="organizer-empty">NO QUICK BOOKMARKS</div>`);
+    $$("[data-open-link]", root).forEach(button => button.onclick = () => { const link = Store.data.quickBookmarks.find(item => item.id === button.dataset.openLink); if (link) window.open(link.url, "_blank", "noopener"); });
+    $$("[data-copy-link]", root).forEach(button => button.onclick = () => copyText(Store.data.quickBookmarks.find(item => item.id === button.dataset.copyLink)?.url || ""));
+    $$("[data-edit-link]", root).forEach(button => button.onclick = () => { const link = Store.data.quickBookmarks.find(item => item.id === button.dataset.editLink); if (!link) return; editingLink = link.id; $("#linkTitle").value = link.title; $("#linkUrl").value = link.url; $("#saveLink").textContent = "UPDATE LINK"; });
+    $$("[data-delete-link]", root).forEach(button => button.onclick = () => { Store.data.quickBookmarks = Store.data.quickBookmarks.filter(link => link.id !== button.dataset.deleteLink); save(); });
+  };
+  const paintHabits = () => {
+    const week = lastSevenDates(), current = today();
+    setHTML($("#habitList"), Store.data.habits.length ? Store.data.habits.map(habit => {
+      const done = habit.completions.includes(current);
+      return `<div class="productivity-item"><span class="grow"><b>${escapeHtml(habit.name)}</b><small>STREAK ${habitStreak(habit)} · ${week.map(date => habit.completions.includes(date) ? "●" : "○").join(" ")}</small></span><button data-toggle-habit="${habit.id}">${done ? "UNDO TODAY" : "MARK TODAY"}</button><button data-delete-habit="${habit.id}" class="danger">DELETE</button></div>`;
+    }).join("") : `<div class="organizer-empty">NO HABITS TRACKED</div>`);
+    $$("[data-toggle-habit]", root).forEach(button => button.onclick = () => { const habit = Store.data.habits.find(item => item.id === button.dataset.toggleHabit); if (!habit) return; const date = today(); habit.completions = habit.completions.includes(date) ? habit.completions.filter(item => item !== date) : [...habit.completions, date]; habit.updatedAt = Date.now(); save(); });
+    $$("[data-delete-habit]", root).forEach(button => button.onclick = () => { Store.data.habits = Store.data.habits.filter(habit => habit.id !== button.dataset.deleteHabit); save(); });
+  };
+  const paintDashboard = () => {
+    const current = today(), openChecks = Store.data.sessionChecklist.filter(item => !item.done).length, dueHabits = Store.data.habits.filter(habit => !habit.completions.includes(current)).length;
+    $("#dailyDate").textContent = new Date().toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+    setHTML($("#dailySummary"), `<div class="item"><span class="grow">Open checklist items</span><b>${openChecks}</b></div><div class="item"><span class="grow">Habits due today</span><b>${dueHabits}</b></div><div class="item"><span class="grow">Focus status</span><b>${focusRunning ? "ACTIVE" : focusRemaining <= 0 ? "COMPLETE" : "READY"}</b></div><div class="item"><span class="grow">Saved snippets</span><b>${Store.data.clipboardSnippets.length}</b></div>`);
+    setHTML($("#dailyLinks"), Store.data.quickBookmarks.length ? Store.data.quickBookmarks.slice(0, 6).map(link => `<div class="productivity-item"><span class="grow"><b>${escapeHtml(link.title)}</b><small>${escapeHtml(link.url)}</small></span><button data-copy-daily-link="${link.id}">COPY</button></div>`).join("") : `<div class="organizer-empty">NO QUICK BOOKMARKS</div>`);
+    setHTML($("#dailyActions"), [...Store.data.sessionChecklist.filter(item => !item.done).slice(0, 5).map(item => `<div class="item"><span class="grow">□ ${escapeHtml(item.text)}</span></div>`), ...Store.data.habits.filter(habit => !habit.completions.includes(current)).slice(0, 5).map(habit => `<div class="item"><span class="grow">○ ${escapeHtml(habit.name)}</span></div>`)].join("") || `<div class="organizer-empty">NOTHING DUE</div>`);
+    $$("[data-copy-daily-link]", root).forEach(button => button.onclick = () => copyText(Store.data.quickBookmarks.find(item => item.id === button.dataset.copyDailyLink)?.url || ""));
+    productivityState.dashboard = { openChecks, dueHabits, links: Store.data.quickBookmarks.length, snippets: Store.data.clipboardSnippets.length };
+  };
+  const paintAll = () => { paintSnippets(); paintChecks(); paintLinks(); paintHabits(); paintFocus(); paintDashboard(); };
+  const switchTab = id => { activeTab = id; productivityState.activeTab = id; $$("[data-productivity-tab]", root).forEach(button => { const selected = button.dataset.productivityTab === id; button.classList.toggle("active", selected); button.setAttribute("aria-selected", String(selected)); $(`#productivity-${button.dataset.productivityTab}`, root).classList.toggle("hidden", !selected); }); };
+  const tabButtons = $$("[data-productivity-tab]", root);
+  tabButtons.forEach((button, index) => { button.onclick = () => switchTab(button.dataset.productivityTab); button.onkeydown = event => { if (!["ArrowLeft","ArrowRight","Home","End"].includes(event.key)) return; event.preventDefault(); const next = event.key === "Home" ? 0 : event.key === "End" ? tabButtons.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabButtons.length) % tabButtons.length; tabButtons[next].focus(); tabButtons[next].click(); }; });
+  $("#saveSnippet").onclick = () => { const text = $("#snippetText").value.trim().slice(0, 4000); if (!text) return toast("Add snippet text"); const now = Date.now(); Store.data.clipboardSnippets.unshift({ id: crypto.randomUUID(), title: ($("#snippetTitle").value.trim() || "Snippet").slice(0, 80), text, pinned: false, createdAt: now, updatedAt: now }); $("#snippetTitle").value = ""; $("#snippetText").value = ""; save(); };
+  $("#clearSnippets").onclick = () => { Store.data.clipboardSnippets = []; save(); };
+  $("#addCheck").onclick = () => { const text = $("#checkText").value.trim().slice(0, 300); if (!text) return toast("Add a checklist item"); const now = Date.now(); Store.data.sessionChecklist.push({ id: crypto.randomUUID(), text, done: false, createdAt: now, updatedAt: now }); $("#checkText").value = ""; save(); };
+  $("#clearDoneChecks").onclick = () => { Store.data.sessionChecklist = Store.data.sessionChecklist.filter(item => !item.done); save(); };
+  $("#focusMinutes").oninput = () => { if (focusRunning) return; focusInitial = Math.max(1, Math.round((Number($("#focusMinutes").value) || 25) * 60)); focusRemaining = focusInitial; paintFocus(); paintDashboard(); };
+  $("#startFocus").onclick = () => {
+    if (focusRunning) return;
+    if (focusRemaining <= 0) focusRemaining = focusInitial;
+    focusRunning = true; paintFocus(); paintDashboard(); stopFocusInterval();
+    let last = Date.now();
+    focusInterval = setInterval(() => { const now = Date.now(); focusRemaining -= (now - last) / 1000; last = now; if (focusRemaining <= 0) completeFocus(); else { paintFocus(); paintDashboard(); } }, 250);
+  };
+  $("#pauseFocus").onclick = () => { focusRunning = false; stopFocusInterval(); paintFocus(); paintDashboard(); };
+  $("#resetFocus").onclick = () => { focusRunning = false; stopFocusInterval(); focusInitial = Math.max(1, Math.round((Number($("#focusMinutes").value) || 25) * 60)); focusRemaining = focusInitial; paintFocus(); paintDashboard(); };
+  $("#saveLink").onclick = () => {
+    const url = validHttpUrl($("#linkUrl").value.trim());
+    if (!url) { $("#linkError").textContent = "ERROR: ONLY HTTP AND HTTPS URLS CAN BE SAVED."; return; }
+    const now = Date.now(), title = ($("#linkTitle").value.trim() || new URL(url).hostname).slice(0, 100);
+    if (editingLink) { const link = Store.data.quickBookmarks.find(item => item.id === editingLink); if (link) Object.assign(link, { title, url, updatedAt: now }); }
+    else Store.data.quickBookmarks.unshift({ id: crypto.randomUUID(), title, url, createdAt: now, updatedAt: now });
+    editingLink = null; $("#linkTitle").value = ""; $("#linkUrl").value = ""; $("#saveLink").textContent = "SAVE LINK"; $("#linkError").textContent = "LINK SAVED."; save();
+  };
+  $("#clearLinkEdit").onclick = () => { editingLink = null; $("#linkTitle").value = ""; $("#linkUrl").value = ""; $("#saveLink").textContent = "SAVE LINK"; $("#linkError").textContent = "ONLY HTTP AND HTTPS LINKS ARE SAVED."; };
+  $("#addHabit").onclick = () => { const name = $("#habitName").value.trim().slice(0, 120); if (!name) return toast("Add a habit name"); const now = Date.now(); Store.data.habits.push({ id: crypto.randomUUID(), name, completions: [], createdAt: now, updatedAt: now }); $("#habitName").value = ""; save(); };
+  paintAll();
+  window.render_productivity_to_text = () => JSON.stringify({ ...productivityState, snippets: Store.data.clipboardSnippets.length, checklist: { total: Store.data.sessionChecklist.length, open: Store.data.sessionChecklist.filter(item => !item.done).length }, links: Store.data.quickBookmarks.length, habits: Store.data.habits.map(habit => ({ name: habit.name, streak: habitStreak(habit), completions: habit.completions.length })) });
+  state.cleanup.push(() => { stopFocusInterval(); delete window.render_productivity_to_text; });
+}
+
 function randomPage(root) {
   setHTML(root, pageFrame("RANDOM LAB", "Generate passwords, identifiers, and fair choices.", `<div class="grid">
     <div class="card"><h3>Password generator</h3><div class="row"><input type="number" id="passLength" min="4" max="128" value="20"><button id="makePass">GENERATE</button></div><label class="item"><input type="checkbox" id="symbols" checked style="width:auto"> Include symbols</label><div class="output" id="passOut"></div></div>
@@ -2630,6 +2812,7 @@ function helpPage(root) {
     <div class="card full"><h3>Page Inspector</h3><p class="muted">Inspect the opener page title, URL, headings, links, images, scripts, DOM counts, and selected elements without modifying page content.</p></div>
     <div class="card full"><h3>File Tools</h3><p class="muted">Inspect local files offline, resize images, preview text and CSV data, format JSON, preview simple YAML-style text, and generate secure checksums.</p></div>
     <div class="card full"><h3>Study Tools</h3><p class="muted">Create local flashcards, generate quiz prompts from notes, search formulas and elements, review unit-circle values, and solve common math helpers.</p></div>
+    <div class="card full"><h3>Productivity</h3><p class="muted">Plan the day with manual snippet storage, session checklists, a visual focus timer, quick links, habit tracking, and a local daily dashboard.</p></div>
     <div class="card full"><h3>Notes & Tasks</h3><p class="muted">Create searchable Markdown notes with tags, pins, archive and trash, plus prioritized tasks with local due dates and JSON backup.</p></div>
     <div class="card full"><h3>Customization</h3><p class="muted">Choose a Matrix, amber, cyan, or violet terminal theme; adjust digital-rain brightness and speed; switch between comfortable and compact layouts; and arrange favorite modules at the top of navigation and Quick Launch.</p></div>
     <div class="card full"><h3>Browser limitations</h3><p class="muted">Chrome blocks bookmarklets on protected pages including <code>chrome://</code>, the New Tab page, extension pages, and the Chrome Web Store. On ordinary sites, the dashboard opens in a separate resizable popup window.</p></div>
