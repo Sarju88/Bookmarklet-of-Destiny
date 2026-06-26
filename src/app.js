@@ -33,6 +33,7 @@ const PAGES = [
   ["convert", "⇄", "Converters"],
   ["text", "¶", "Text Lab"],
   ["developer", "</>", "Developer Tools"],
+  ["inspector", "⌕", "Page Inspector"],
   ["random", "⚄", "Random Lab"],
   ["qr", "▦", "QR Generator"],
   ["draw", "✎", "Drawing Pad"],
@@ -169,6 +170,7 @@ const state = {
 };
 
 const DARK_MODE_STYLE_ID = "__bod_dark_mode";
+const INSPECTOR_STYLE_ID = "__bod_inspector_highlights";
 const DARK_MODE_CSS = `
   :root {
     color-scheme: dark !important;
@@ -230,6 +232,7 @@ const el = (tag, attrs = {}, html = "") => {
   return node;
 };
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const cssIdent = value => String(value).replace(/[^a-zA-Z0-9_-]/g, c => `\\${c.charCodeAt(0).toString(16)} `);
 const toast = (message) => {
   const node = el("div", { class: "toast" }, escapeHtml(message));
   appMount.append(node);
@@ -625,7 +628,7 @@ function navigate(page) {
 
 function renderPage() {
   const content = $("#content");
-  const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, calendar: calendarPage, worldclock: worldClockPage, colors: colorToolsPage, convert: convertPage, text: textPage, developer: developerToolsPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
+  const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, calendar: calendarPage, worldclock: worldClockPage, colors: colorToolsPage, convert: convertPage, text: textPage, developer: developerToolsPage, inspector: inspectorPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
   setHTML(content, "");
   renderers[state.page](content);
   state.cleanup.push(enhanceSelects(content));
@@ -1643,6 +1646,123 @@ function developerToolsPage(root) {
   state.cleanup.push(() => { delete window.render_developer_tools_to_text; });
 }
 
+function inspectorPage(root) {
+  let pickCleanup = null, selectedInfo = null;
+  const maxList = 80;
+  const readPage = () => {
+    const target = targetPage();
+    if (!target) return { available: false, error: "NO OPENER — launch from the bookmarklet to inspect a page." };
+    try {
+      const doc = target.document;
+      const headings = $$("h1,h2,h3,h4,h5,h6", doc).slice(0, maxList).map(node => ({ level: node.tagName, text: node.textContent.trim().replace(/\s+/g, " ").slice(0, 160) }));
+      const links = $$("a[href]", doc).slice(0, maxList).map(node => ({ text: node.textContent.trim().replace(/\s+/g, " ").slice(0, 120) || node.getAttribute("aria-label") || "(no text)", href: node.href }));
+      const images = $$("img", doc).slice(0, maxList).map(node => ({ alt: node.alt || "(no alt)", src: node.currentSrc || node.src || node.getAttribute("src") || "", size: `${node.naturalWidth || node.width || 0}×${node.naturalHeight || node.height || 0}` }));
+      const scripts = $$("script", doc).slice(0, maxList).map(node => ({ src: node.src || "(inline script)", type: node.type || "classic" }));
+      const clickables = $$("a[href],button,input,select,textarea,[role='button'],[role='link'],[onclick],summary", doc);
+      return {
+        available: true, title: doc.title || "(untitled)", url: target.location.href, origin: target.location.origin,
+        charset: doc.characterSet || "", lang: doc.documentElement.lang || "", domNodes: doc.querySelectorAll("*").length,
+        headings, links, images, scripts,
+        counts: { headings: doc.querySelectorAll("h1,h2,h3,h4,h5,h6").length, links: doc.querySelectorAll("a[href]").length, images: doc.images.length, scripts: doc.scripts.length, clickables: clickables.length }
+      };
+    } catch (error) {
+      return { available: false, error: `PAGE BLOCKED INSPECTION — ${error.message || "cross-origin or browser restriction"}` };
+    }
+  };
+  const elementInfo = node => {
+    const target = targetPage(), doc = target.document, rect = node.getBoundingClientRect();
+    const attrs = ["id", "class", "href", "src", "alt", "role", "aria-label", "type", "name"].map(name => [name, node.getAttribute?.(name)]).filter(([, value]) => value);
+    const index = [...doc.querySelectorAll(node.tagName)].indexOf(node) + 1;
+    return {
+      tag: node.tagName.toLowerCase(),
+      selector: node.id ? `#${cssIdent(node.id)}` : `${node.tagName.toLowerCase()}:nth-of-type(${index})`,
+      text: node.textContent.trim().replace(/\s+/g, " ").slice(0, 240),
+      size: `${Math.round(rect.width)}×${Math.round(rect.height)}`,
+      position: `${Math.round(rect.left + target.scrollX)}, ${Math.round(rect.top + target.scrollY)}`,
+      attributes: attrs
+    };
+  };
+  const renderList = (items, kind) => items.length ? items.map((item, index) => {
+    if (kind === "headings") return `<div class="inspector-row"><b>${escapeHtml(item.level)}</b><span>${escapeHtml(item.text || "(empty heading)")}</span></div>`;
+    if (kind === "links") return `<div class="inspector-row"><b>#${index + 1}</b><span>${escapeHtml(item.text)}<small>${escapeHtml(item.href)}</small></span></div>`;
+    if (kind === "images") return `<div class="inspector-row"><b>${escapeHtml(item.size)}</b><span>${escapeHtml(item.alt)}<small>${escapeHtml(item.src)}</small></span></div>`;
+    return `<div class="inspector-row"><b>${escapeHtml(item.type)}</b><span>${escapeHtml(item.src)}</span></div>`;
+  }).join("") : `<div class="muted">NO ITEMS FOUND</div>`;
+  const renderSelected = () => selectedInfo ? `<div class="stack">
+    <div class="output">TAG: ${escapeHtml(selectedInfo.tag)}\nSELECTOR: ${escapeHtml(selectedInfo.selector)}\nSIZE: ${escapeHtml(selectedInfo.size)}\nPOSITION: ${escapeHtml(selectedInfo.position)}\nTEXT: ${escapeHtml(selectedInfo.text || "(no text)")}</div>
+    <div class="list">${selectedInfo.attributes.map(([name, value]) => `<div class="item"><span class="grow">${escapeHtml(name)}</span><code>${escapeHtml(value)}</code></div>`).join("") || `<div class="muted">NO COMMON ATTRIBUTES</div>`}</div>
+    <button id="copySelector">COPY SELECTOR</button>
+  </div>` : `<div class="output">NO ELEMENT SELECTED. CLICK PICK ELEMENT, THEN CLICK AN ELEMENT ON THE PAGE.</div>`;
+  const clearHighlights = () => {
+    try {
+      const doc = targetPage()?.document;
+      doc?.getElementById(INSPECTOR_STYLE_ID)?.remove();
+      doc?.querySelectorAll("[data-bod-inspector-highlight]").forEach(node => node.removeAttribute("data-bod-inspector-highlight"));
+    } catch {}
+  };
+  const stopPicking = () => { if (pickCleanup) { pickCleanup(); pickCleanup = null; } };
+  const wireSelectorCopy = () => {
+    const button = $("#copySelector");
+    if (button && selectedInfo) button.onclick = async () => { try { await navigator.clipboard.writeText(selectedInfo.selector); toast("Selector copied"); } catch { toast("Copy failed"); } };
+  };
+  const paint = () => {
+    const info = readPage();
+    setHTML(root, pageFrame("PAGE INSPECTOR", "Read-only metadata and element inspection for the page that launched the dashboard.", `<div class="grid">
+      <div class="card full"><h3>Target status</h3><div class="output">${info.available ? `CONNECTED\nTITLE: ${escapeHtml(info.title)}\nURL: ${escapeHtml(info.url)}\nORIGIN: ${escapeHtml(info.origin)}` : escapeHtml(info.error)}</div></div>
+      ${info.available ? `<div class="card third"><h3>DOM Nodes</h3><div class="metric">${info.domNodes.toLocaleString()}</div><p class="muted">${escapeHtml(info.charset)} ${info.lang ? `· ${escapeHtml(info.lang)}` : ""}</p></div>
+      <div class="card third"><h3>Page Counts</h3><div class="output">HEADINGS ${info.counts.headings}\nLINKS ${info.counts.links}\nIMAGES ${info.counts.images}\nSCRIPTS ${info.counts.scripts}\nCLICKABLES ${info.counts.clickables}</div></div>
+      <div class="card third"><h3>Actions</h3><div class="stack"><button id="refreshInspector">REFRESH INSPECTION</button><button id="highlightClickables">HIGHLIGHT CLICKABLES</button><button id="clearInspectorHighlights">CLEAR HIGHLIGHTS</button><button id="pickElement">PICK ELEMENT</button><button id="copyPageMeta">COPY PAGE METADATA</button><button id="downloadPageMeta">DOWNLOAD JSON</button></div></div>
+      <div class="card full"><h3>Selected Element</h3><div id="selectedElement">${renderSelected()}</div></div>
+      <div class="card"><h3>Headings</h3><div class="inspector-list">${renderList(info.headings, "headings")}</div></div>
+      <div class="card"><h3>Links</h3><div class="inspector-list">${renderList(info.links, "links")}</div></div>
+      <div class="card"><h3>Images</h3><div class="inspector-list">${renderList(info.images, "images")}</div></div>
+      <div class="card"><h3>Scripts</h3><div class="inspector-list">${renderList(info.scripts, "scripts")}</div></div>` : ""}</div>`));
+    if (!info.available) return;
+    $("#refreshInspector").onclick = paint;
+    $("#clearInspectorHighlights").onclick = () => { stopPicking(); clearHighlights(); toast("Inspector highlights cleared"); };
+    $("#highlightClickables").onclick = () => {
+      try {
+        const doc = targetPage().document;
+        let style = doc.getElementById(INSPECTOR_STYLE_ID);
+        if (!style) {
+          style = doc.createElement("style");
+          style.id = INSPECTOR_STYLE_ID;
+          style.textContent = `[data-bod-inspector-highlight]{outline:2px solid #39ff88!important;outline-offset:2px!important;box-shadow:0 0 0 4px #00ff6644!important}`;
+          (doc.head || doc.documentElement).append(style);
+        }
+        $$("a[href],button,input,select,textarea,[role='button'],[role='link'],[onclick],summary", doc).forEach(node => node.setAttribute("data-bod-inspector-highlight", "clickable"));
+        toast("Clickable elements highlighted");
+      } catch { toast("Page blocks highlighting"); }
+    };
+    $("#pickElement").onclick = () => {
+      stopPicking();
+      try {
+        const doc = targetPage().document;
+        const over = event => { event.target?.setAttribute?.("data-bod-inspector-highlight", "pick"); };
+        const out = event => { if (event.target?.getAttribute?.("data-bod-inspector-highlight") === "pick") event.target.removeAttribute("data-bod-inspector-highlight"); };
+        const click = event => {
+          event.preventDefault(); event.stopPropagation();
+          selectedInfo = elementInfo(event.target);
+          stopPicking();
+          setHTML($("#selectedElement"), renderSelected());
+          wireSelectorCopy();
+          toast("Element selected");
+        };
+        doc.addEventListener("mouseover", over, true);
+        doc.addEventListener("mouseout", out, true);
+        doc.addEventListener("click", click, true);
+        pickCleanup = () => { doc.removeEventListener("mouseover", over, true); doc.removeEventListener("mouseout", out, true); doc.removeEventListener("click", click, true); };
+        toast("Click an element on the page");
+      } catch { toast("Page blocks element picking"); }
+    };
+    $("#copyPageMeta").onclick = async () => { try { await navigator.clipboard.writeText(JSON.stringify(readPage(), null, 2)); toast("Page metadata copied"); } catch { toast("Copy failed"); } };
+    $("#downloadPageMeta").onclick = () => el("a", { download: "destiny-page-inspection.json", href: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(readPage(), null, 2))}` }).click();
+    wireSelectorCopy();
+  };
+  paint();
+  state.cleanup.push(() => { stopPicking(); clearHighlights(); });
+}
+
 function randomPage(root) {
   setHTML(root, pageFrame("RANDOM LAB", "Generate passwords, identifiers, and fair choices.", `<div class="grid">
     <div class="card"><h3>Password generator</h3><div class="row"><input type="number" id="passLength" min="4" max="128" value="20"><button id="makePass">GENERATE</button></div><label class="item"><input type="checkbox" id="symbols" checked style="width:auto"> Include symbols</label><div class="output" id="passOut"></div></div>
@@ -2248,6 +2368,7 @@ function helpPage(root) {
     <div class="card full"><h3>World Clock</h3><p class="muted">Save live IANA time zones and convert a chosen local date and time with daylight-saving gap and overlap detection.</p></div>
     <div class="card full"><h3>Color Tools</h3><p class="muted">Convert HEX, RGB, and HSL; generate palettes; check WCAG contrast; and preview approximate color-vision simulations.</p></div>
     <div class="card full"><h3>Developer Tools</h3><p class="muted">Test regular expressions, generate secure hashes, inspect JWT data, preview safe Markdown, and experiment with sanitized HTML and CSS.</p></div>
+    <div class="card full"><h3>Page Inspector</h3><p class="muted">Inspect the opener page title, URL, headings, links, images, scripts, DOM counts, and selected elements without modifying page content.</p></div>
     <div class="card full"><h3>Notes & Tasks</h3><p class="muted">Create searchable Markdown notes with tags, pins, archive and trash, plus prioritized tasks with local due dates and JSON backup.</p></div>
     <div class="card full"><h3>Customization</h3><p class="muted">Choose a Matrix, amber, cyan, or violet terminal theme; adjust digital-rain brightness and speed; switch between comfortable and compact layouts; and arrange favorite modules at the top of navigation and Quick Launch.</p></div>
     <div class="card full"><h3>Browser limitations</h3><p class="muted">Chrome blocks bookmarklets on protected pages including <code>chrome://</code>, the New Tab page, extension pages, and the Chrome Web Store. On ordinary sites, the dashboard opens in a separate resizable popup window.</p></div>

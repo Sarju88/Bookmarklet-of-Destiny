@@ -665,7 +665,7 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     assert.equal(context.pages().length, 2);
     assert.equal(await panel.locator("html").getAttribute("data-ready"), "1");
     assert.equal(panel.url(), "about:blank");
-    for (const module of ["calculator", "organizer", "time", "calendar", "worldclock", "colors", "convert", "text", "developer", "random", "qr", "draw", "page", "games", "settings", "help", "home"]) {
+    for (const module of ["calculator", "organizer", "time", "calendar", "worldclock", "colors", "convert", "text", "developer", "inspector", "random", "qr", "draw", "page", "games", "settings", "help", "home"]) {
       await panel.locator(`[data-page="${module}"]`).click();
       await panel.locator(".page h2").waitFor();
       assert.ok((await panel.locator(".page h2").textContent()).trim().length > 0);
@@ -683,6 +683,19 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     await panel.locator("#runRegex").click();
     assert.equal(await panel.locator(".developer-match").count(), 2);
     await capture(panel, `${shots}/developer-popup.png`);
+    await panel.locator('[data-page="inspector"]').click();
+    assert.match(await panel.locator(".page h2").textContent(), /PAGE INSPECTOR/);
+    assert.match(await panel.locator(".output").first().textContent(), /YouTube-like Trusted Types fixture/);
+    assert.match(await panel.locator(".inspector-list").first().textContent(), /Trusted Types test page/);
+    await panel.locator("#highlightClickables").click();
+    assert.equal(await page.locator("[data-bod-inspector-highlight]").count(), 2);
+    await panel.locator("#clearInspectorHighlights").click();
+    assert.equal(await page.locator("[data-bod-inspector-highlight]").count(), 0);
+    await panel.locator("#pickElement").click();
+    await page.locator("#dark-button").click();
+    assert.match(await panel.locator("#selectedElement").textContent(), /SELECTOR: #dark-button/);
+    assert.match(await panel.locator("#selectedElement").textContent(), /Application button/);
+    await capture(panel, `${shots}/inspector-popup.png`);
     await panel.locator('[data-page="organizer"]').click();
     await panel.locator("#newNote").click();
     await panel.locator("#noteTitle").fill("Popup note");
