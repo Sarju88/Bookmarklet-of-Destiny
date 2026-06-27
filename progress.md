@@ -119,3 +119,4 @@ Original prompt: Build the complete “Bookmarklet of Destiny” plan: a self-co
 - Full automated suite passed three times after generated artifacts were rebuilt.
 - Visually inspected installer, dashboard, preview Arcade Stats, and real-popup Arcade Stats.
 - Stage 5 implementation is complete; stop before Stage 6 Appearance Customization.
+- Increased generated arcade sound volume from low feedback tones to louder 0.12 peak gain with a slightly longer release.

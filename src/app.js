@@ -2396,10 +2396,10 @@ function arcadeSound(type = "tick") {
     oscillator.frequency.value = tones[type] || tones.tick;
     oscillator.type = type === "error" ? "sawtooth" : "square";
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.035, now + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+    gain.gain.exponentialRampToValueAtTime(0.12, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
     oscillator.connect(gain); gain.connect(soundContext.destination);
-    oscillator.start(now); oscillator.stop(now + 0.13);
+    oscillator.start(now); oscillator.stop(now + 0.17);
   } catch {}
 }
 function awardAchievement(id) {
