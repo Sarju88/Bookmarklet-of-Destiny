@@ -20,6 +20,8 @@ test("bookmarklet is generated and self-contained", async () => {
   assert.match(source, /PRODUCTIVITY/);
   assert.match(source, /SOCIAL/);
   assert.match(source, /AMERICAN CHECKERS/);
+  assert.match(source, /ARCADE STATS/);
+  assert.match(source, /SAVED CHESS MATCH/);
   assert.match(source, /Promote pawn/);
   assert.match(source, /Amber Terminal/);
   assert.match(source, /matrixBrightness/);

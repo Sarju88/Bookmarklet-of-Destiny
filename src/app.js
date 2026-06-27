@@ -68,6 +68,8 @@ const defaults = {
   habits: [],
   focusStats: { completed: 0, minutes: 0, lastCompletedAt: 0 },
   socialShortcuts: [],
+  achievements: {},
+  savedGames: { chess: null, checkers: null },
   calcHistory: [],
   scores: { snake: 0, "2048": 0, mines: 0, ttt: 0, pong: 0, breakout: 0, connect4: 0, tron: 0, invaders: 0, memory: 0, chess: 0, checkers: 0 },
   settings: {
@@ -105,6 +107,8 @@ const Store = {
     if (!Array.isArray(this.data.quickBookmarks)) this.data.quickBookmarks = [];
     if (!Array.isArray(this.data.habits)) this.data.habits = [];
     if (!Array.isArray(this.data.socialShortcuts)) this.data.socialShortcuts = [];
+    if (!this.data.achievements || typeof this.data.achievements !== "object") this.data.achievements = {};
+    if (!this.data.savedGames || typeof this.data.savedGames !== "object") this.data.savedGames = structuredClone(defaults.savedGames);
     if (!this.data.focusStats || typeof this.data.focusStats !== "object") this.data.focusStats = structuredClone(defaults.focusStats);
     let changed = !this.data.todos.every(todo => todo.id && todo.priority && "dueDate" in todo && todo.createdAt && todo.updatedAt);
     if (!this.data.organizerMigrated) {
@@ -183,6 +187,11 @@ const Store = {
       createdAt: Number(link.createdAt) || now,
       updatedAt: Number(link.updatedAt) || now
     })).filter(link => link.url);
+    this.data.achievements = Object.fromEntries(Object.entries(this.data.achievements).filter(([id, value]) => /^[a-z0-9:-]+$/i.test(id) && value).map(([id, value]) => [id, Number(value) || now]));
+    this.data.savedGames = {
+      chess: this.data.savedGames.chess?.position ? this.data.savedGames.chess : null,
+      checkers: this.data.savedGames.checkers?.position ? this.data.savedGames.checkers : null
+    };
     if (changed) this.save();
   },
   save() {
@@ -2364,24 +2373,114 @@ function pageControlsPage(root) {
   });
 }
 
+const GAME_NAMES = { snake:"Snake Battle", "2048":"2048", mines:"Minesweeper Race", ttt:"Tic-Tac-Toe", pong:"Pong", breakout:"Breakout", connect4:"Connect Four", tron:"Tron", invaders:"Space Invaders", memory:"Memory Match", chess:"Chess", checkers:"American Checkers" };
+const ACHIEVEMENT_LABELS = {
+  "arcade:first-record": "First record saved",
+  "arcade:score-100": "100 point signal",
+  "arcade:score-500": "500 point surge",
+  "arcade:board-save": "Board game preserved",
+  "arcade:resume": "Back in the match",
+  "arcade:gamepad-seen": "Controller detected",
+  "chess:first-win": "Chess victory",
+  "checkers:first-win": "Checkers victory"
+};
+let soundContext = null;
+function arcadeSound(type = "tick") {
+  if (!Store.data.settings.sound) return;
+  try {
+    const AudioContextClass = globalThis.AudioContext || globalThis.webkitAudioContext;
+    if (!AudioContextClass) return;
+    soundContext ||= new AudioContextClass();
+    const oscillator = soundContext.createOscillator(), gain = soundContext.createGain();
+    const now = soundContext.currentTime, tones = { tick: 440, score: 660, win: 880, save: 520, error: 180 };
+    oscillator.frequency.value = tones[type] || tones.tick;
+    oscillator.type = type === "error" ? "sawtooth" : "square";
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.035, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+    oscillator.connect(gain); gain.connect(soundContext.destination);
+    oscillator.start(now); oscillator.stop(now + 0.13);
+  } catch {}
+}
+function awardAchievement(id) {
+  if (!Store.data.achievements[id]) {
+    Store.data.achievements[id] = Date.now();
+    Store.save();
+    arcadeSound("win");
+  }
+}
+function arcadeStatsPayload() {
+  return { game: "arcade-stats", scores: Store.data.scores, achievements: Object.keys(Store.data.achievements), savedGames: Object.fromEntries(["chess","checkers"].map(id => [id, !!Store.data.savedGames[id]])), sound: !!Store.data.settings.sound };
+}
+function startGamepadSupport(statusNode) {
+  if (!("getGamepads" in navigator)) {
+    statusNode.textContent = "GAMEPAD: NOT SUPPORTED";
+    return () => {};
+  }
+  let raf = 0, lastButtons = new Set(), lastKeys = new Set();
+  const dispatch = (key, down) => dispatchEvent(new KeyboardEvent(down ? "keydown" : "keyup", { key, bubbles: true }));
+  const poll = () => {
+    const pad = [...navigator.getGamepads()].find(Boolean);
+    if (!pad) {
+      statusNode.textContent = "GAMEPAD: NONE";
+    } else {
+      awardAchievement("arcade:gamepad-seen");
+      const keys = new Set();
+      const x = pad.axes[0] || 0, y = pad.axes[1] || 0;
+      if (x < -0.45 || pad.buttons[14]?.pressed) keys.add("ArrowLeft");
+      if (x > 0.45 || pad.buttons[15]?.pressed) keys.add("ArrowRight");
+      if (y < -0.45 || pad.buttons[12]?.pressed) keys.add("ArrowUp");
+      if (y > 0.45 || pad.buttons[13]?.pressed) keys.add("ArrowDown");
+      if (pad.buttons[0]?.pressed) keys.add(" ");
+      if (pad.buttons[9]?.pressed) keys.add("p");
+      keys.forEach(key => { if (!lastKeys.has(key)) dispatch(key, true); });
+      lastKeys.forEach(key => { if (!keys.has(key)) dispatch(key, false); });
+      lastKeys = keys; lastButtons = new Set(pad.buttons.map((button, index) => button.pressed ? index : null).filter(index => index !== null));
+      statusNode.textContent = `GAMEPAD: ${escapeHtml(pad.id || "CONNECTED")} · ${lastButtons.size} BUTTONS`;
+    }
+    raf = requestAnimationFrame(poll);
+  };
+  poll();
+  return () => { cancelAnimationFrame(raf); lastKeys.forEach(key => dispatch(key, false)); lastKeys.clear(); };
+}
+
 function gamesPage(root) {
   const games = [["snake","SNAKE"],["2048","2048"],["mines","MINES"],["ttt","TIC-TAC-TOE"],["pong","PONG"],["breakout","BREAKOUT"],["connect4","CONNECT FOUR"],["tron","TRON"],["invaders","SPACE INVADERS"],["memory","MEMORY"],["chess","CHESS"],["checkers","CHECKERS"]];
-  setHTML(root, pageFrame("DESTINY ARCADE", "Twelve offline games with local records and multiplayer modes.", `<div class="game-selector"><input id="gameSearch" placeholder="Search games..." aria-label="Search arcade games"><div class="game-tabs">${games.map(([id, name]) => `<button data-game="${id}" class="${state.game === id ? "active" : ""}">${name}</button>`).join("")}</div></div><div id="gameHost"></div>`));
+  setHTML(root, pageFrame("DESTINY ARCADE", "Twelve offline games with local records, achievements, sound, save/resume, and gamepad fallback.", `<div class="game-selector"><input id="gameSearch" placeholder="Search games..." aria-label="Search arcade games"><div class="game-tabs">${games.map(([id, name]) => `<button data-game="${id}" class="${state.game === id ? "active" : ""}">${name}</button>`).join("")}<button data-arcade-stats class="${state.game === "stats" ? "active" : ""}">ARCADE STATS</button></div></div><div class="arcade-toolbar"><button id="soundToggle">${Store.data.settings.sound ? "SOUND ON" : "MUTED"}</button><span id="gamepadStatus">GAMEPAD: CHECKING</span></div><div id="gameHost"></div>`));
   $("#gameSearch").oninput = event => $$("[data-game]").forEach(button => button.classList.toggle("hidden", !button.textContent.toLowerCase().includes(event.target.value.toLowerCase())));
-  $$("[data-game]").forEach(button => button.onclick = () => { clearGame(); state.game = button.dataset.game; $$("[data-game]").forEach(b => b.classList.toggle("active", b === button)); mountGame(); });
+  $$("[data-game]").forEach(button => button.onclick = () => { clearGame(); state.game = button.dataset.game; $$("[data-game]").forEach(b => b.classList.toggle("active", b === button)); $("[data-arcade-stats]").classList.remove("active"); mountGame(); });
+  $("[data-arcade-stats]").onclick = () => { clearGame(); state.game = "stats"; $$("[data-game]").forEach(button => button.classList.remove("active")); $("[data-arcade-stats]").classList.add("active"); mountStats(); };
+  $("#soundToggle").onclick = () => { Store.update("settings.sound", !Store.data.settings.sound); $("#soundToggle").textContent = Store.data.settings.sound ? "SOUND ON" : "MUTED"; arcadeSound("tick"); };
   let gameCleanup = () => {};
   const clearGame = () => { gameCleanup(); gameCleanup = () => {}; };
+  const mountStats = () => {
+    const host = $("#gameHost"), achievementIds = Object.keys(Store.data.achievements);
+    setHTML(host, `<div class="grid"><div class="card"><h3>Leaderboard</h3><div class="list">${Object.entries(Store.data.scores).map(([game, value]) => `<div class="item"><span class="grow">${escapeHtml(GAME_NAMES[game] || game)}</span><b>${value}</b></div>`).join("")}</div></div><div class="card"><h3>Achievements</h3><div class="achievement-grid">${Object.entries(ACHIEVEMENT_LABELS).map(([id, label]) => `<span class="${Store.data.achievements[id] ? "earned" : ""}">${Store.data.achievements[id] ? "◆" : "◇"} ${escapeHtml(label)}</span>`).join("")}</div><div class="output" style="margin-top:10px">${achievementIds.length}/${Object.keys(ACHIEVEMENT_LABELS).length} ACHIEVEMENTS UNLOCKED</div></div><div class="card full"><h3>Saved board games</h3><div class="list"><div class="item"><span class="grow">Chess save</span><b>${Store.data.savedGames.chess ? "READY" : "EMPTY"}</b></div><div class="item"><span class="grow">Checkers save</span><b>${Store.data.savedGames.checkers ? "READY" : "EMPTY"}</b></div></div></div></div>`);
+    window.render_game_to_text = () => JSON.stringify(arcadeStatsPayload());
+    window.advanceTime = () => {};
+  };
   const mountGame = () => {
     const host = $("#gameHost");
     const cleanupGame = ({ snake: snakeGame, "2048": game2048, mines: minesGame, ttt: tttGame, pong: pongGame, breakout: breakoutGame, connect4: connectFourGame, tron: tronGame, invaders: invadersGame, memory: memoryGame, chess: chessGame, checkers: checkersGame })[state.game](host);
     const cleanupSelects = enhanceSelects(host);
     gameCleanup = () => { cleanupSelects(); cleanupGame(); };
   };
-  state.cleanup.push(clearGame); mountGame();
+  const stopGamepad = startGamepadSupport($("#gamepadStatus"));
+  state.cleanup.push(() => { clearGame(); stopGamepad(); });
+  state.game === "stats" ? mountStats() : mountGame();
 }
 
 function score(game, value) {
-  if (value > Store.data.scores[game]) { Store.data.scores[game] = value; Store.save(); }
+  if (value > Store.data.scores[game]) {
+    Store.data.scores[game] = value;
+    awardAchievement("arcade:first-record");
+    if (value >= 100) awardAchievement("arcade:score-100");
+    if (value >= 500) awardAchievement("arcade:score-500");
+    if (game === "chess") awardAchievement("chess:first-win");
+    if (game === "checkers") awardAchievement("checkers:first-win");
+    Store.save();
+    arcadeSound(value >= 100 ? "win" : "score");
+  }
 }
 
 function canvasBase(host, title, controls, width = 600, height = 420) {
@@ -2749,7 +2848,7 @@ const CHESS_GLYPHS={K:"♔",Q:"♕",R:"♖",B:"♗",N:"♘",P:"♙",k:"♚",q:"�
 const boardResultLabel=result=>({playing:"PLAYING","white-won":"WHITE WINS","black-won":"BLACK WINS",stalemate:"STALEMATE",repetition:"DRAW · THREEFOLD REPETITION","fifty-move":"DRAW · FIFTY-MOVE RULE",insufficient:"DRAW · INSUFFICIENT MATERIAL","red-won":"RED WINS"})[result]||result.toUpperCase();
 
 function chessGame(host) {
-  setHTML(host, `<div class="game-status"><span>CHESS</span><span id="chessControls">YOU: WHITE · CPU: BLACK</span></div><div class="game-wrap board-game-wrap"><div class="board-game-layout"><div><div class="board-grid chess-board" id="chessBoard" role="grid" aria-label="Chess board"></div><div class="metric board-status" id="chessStatus"></div></div><aside class="move-history"><h3>Move history</h3><div id="chessHistory"></div></aside></div></div><div class="game-control-row"><div class="select-field"><label class="select-label" for="chessPlayers">Game mode</label><select id="chessPlayers" class="select-full"><option value="one">1 PLAYER</option><option value="two">2 PLAYERS</option></select></div><div class="select-field"><label class="select-label" for="chessDifficulty">Difficulty</label><select id="chessDifficulty" class="select-full"><option value="easy">EASY</option><option value="normal" selected>NORMAL</option><option value="hard">HARD</option></select></div><button class="gameRestart">RESTART</button></div><div id="promotionPicker" class="promotion-picker hidden" role="dialog" aria-modal="true"><div><h3>Promote pawn</h3><div class="row">${["q","r","b","n"].map(piece=>`<button data-promotion="${piece}">${CHESS_GLYPHS[piece.toUpperCase()]}</button>`).join("")}</div></div></div>`);
+  setHTML(host, `<div class="game-status"><span>CHESS</span><span id="chessControls">YOU: WHITE · CPU: BLACK</span></div><div class="game-wrap board-game-wrap"><div class="board-game-layout"><div><div class="board-grid chess-board" id="chessBoard" role="grid" aria-label="Chess board"></div><div class="metric board-status" id="chessStatus"></div></div><aside class="move-history"><h3>Move history</h3><div id="chessHistory"></div></aside></div></div><div class="game-control-row"><div class="select-field"><label class="select-label" for="chessPlayers">Game mode</label><select id="chessPlayers" class="select-full"><option value="one">1 PLAYER</option><option value="two">2 PLAYERS</option></select></div><div class="select-field"><label class="select-label" for="chessDifficulty">Difficulty</label><select id="chessDifficulty" class="select-full"><option value="easy">EASY</option><option value="normal" selected>NORMAL</option><option value="hard">HARD</option></select></div><button class="gameRestart">RESTART</button><button id="saveChess">SAVE</button><button id="resumeChess" ${Store.data.savedGames.chess ? "" : "disabled"}>RESUME</button></div><div class="output tiny" id="chessSaveStatus">${Store.data.savedGames.chess ? "SAVED CHESS MATCH READY" : "NO SAVED CHESS MATCH"}</div><div id="promotionPicker" class="promotion-picker hidden" role="dialog" aria-modal="true"><div><h3>Promote pawn</h3><div class="row">${["q","r","b","n"].map(piece=>`<button data-promotion="${piece}">${CHESS_GLYPHS[piece.toUpperCase()]}</button>`).join("")}</div></div></div>`);
   let position=initialChessState(),selected=null,cursor=52,playerMode="one",cpuTimer=null,pendingPromotion=null,destroyed=false;
   const legalFrom=()=>selected===null?[]:chessLegalMoves(position,selected);
   const scheduleCpu=()=>{if(cpuTimer)clearTimeout(cpuTimer);if(!destroyed&&playerMode==="one"&&position.turn==="b"&&position.result==="playing")cpuTimer=setTimeout(()=>{cpuTimer=null;const move=chooseChessMove(position,$("#chessDifficulty").value,{easy:20,normal:90,hard:180}[$("#chessDifficulty").value]);if(move){position=chessMove(position,move);selected=null;paint()}},120)};
@@ -2772,15 +2871,17 @@ function chessGame(host) {
     setHTML($("#chessHistory"),position.history.length?position.history.map((move,index)=>`<span><b>${Math.floor(index/2)+1}${index%2?"...":"."}</b> ${escapeHtml(move)}</span>`).join(""):`<span class="muted">NO MOVES</span>`);
   };
   const reset=()=>{if(cpuTimer)clearTimeout(cpuTimer);position=initialChessState();selected=null;cursor=52;pendingPromotion=null;playerMode=$("#chessPlayers").value;$("#promotionPicker").classList.add("hidden");paint()};
+  const saveMatch=()=>{Store.data.savedGames.chess={position:structuredClone(position),playerMode,difficulty:$("#chessDifficulty").value,savedAt:Date.now()};Store.save();awardAchievement("arcade:board-save");$("#resumeChess").disabled=false;$("#chessSaveStatus").textContent="CHESS MATCH SAVED";arcadeSound("save")};
+  const resumeMatch=()=>{const saved=Store.data.savedGames.chess;if(!saved?.position)return;position=structuredClone(saved.position);playerMode=saved.playerMode||"one";$("#chessPlayers").value=playerMode;$("#chessDifficulty").value=saved.difficulty||"normal";selected=null;pendingPromotion=null;cursor=52;$("#promotionPicker").classList.add("hidden");awardAchievement("arcade:resume");$("#chessSaveStatus").textContent="CHESS MATCH RESUMED";paint();scheduleCpu()};
   const key=event=>{if($("#promotionPicker")&&!$("#promotionPicker").classList.contains("hidden"))return;const r=Math.floor(cursor/8),f=cursor%8;if(event.key==="ArrowUp")cursor=Math.max(0,cursor-8);if(event.key==="ArrowDown")cursor=Math.min(63,cursor+8);if(event.key==="ArrowLeft")cursor=r*8+Math.max(0,f-1);if(event.key==="ArrowRight")cursor=r*8+Math.min(7,f+1);if(event.key==="Enter"||event.key===" ")choose(cursor);if(event.key==="Escape"){selected=null;paint()}if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Enter"," "].includes(event.key)){event.preventDefault();paint()}};
-  addEventListener("keydown",key);$$("[data-promotion]",host).forEach(button=>button.onclick=()=>commit({...pendingPromotion,promotion:button.dataset.promotion}));$("#chessPlayers").onchange=reset;$("#chessDifficulty").onchange=reset;$(".gameRestart",host).onclick=reset;
-  window.render_game_to_text=()=>JSON.stringify({game:"chess",mode:position.result,playerMode,difficulty:$("#chessDifficulty").value,coordinateSystem:"a8 index 0 through h1 index 63",currentPlayer:position.turn,selected:selected===null?null:algebraic(selected),cursor:algebraic(cursor),legalDestinations:legalFrom().map(move=>algebraic(move.to)),pieces:position.board.map((piece,index)=>piece?{square:algebraic(index),piece}:null).filter(Boolean),castling:position.castling,enPassant:position.enPassant===null?null:algebraic(position.enPassant),halfmove:position.halfmove,fullmove:position.fullmove,history:position.history,result:position.result});
+  addEventListener("keydown",key);$$("[data-promotion]",host).forEach(button=>button.onclick=()=>commit({...pendingPromotion,promotion:button.dataset.promotion}));$("#chessPlayers").onchange=reset;$("#chessDifficulty").onchange=reset;$(".gameRestart",host).onclick=reset;$("#saveChess").onclick=saveMatch;$("#resumeChess").onclick=resumeMatch;
+  window.render_game_to_text=()=>JSON.stringify({game:"chess",mode:position.result,playerMode,difficulty:$("#chessDifficulty").value,coordinateSystem:"a8 index 0 through h1 index 63",currentPlayer:position.turn,selected:selected===null?null:algebraic(selected),cursor:algebraic(cursor),legalDestinations:legalFrom().map(move=>algebraic(move.to)),pieces:position.board.map((piece,index)=>piece?{square:algebraic(index),piece}:null).filter(Boolean),castling:position.castling,enPassant:position.enPassant===null?null:algebraic(position.enPassant),halfmove:position.halfmove,fullmove:position.fullmove,history:position.history,result:position.result,saved:!!Store.data.savedGames.chess});
   window.__BOD_BOARD_TEST__={kind:"chess",load:value=>{position=structuredClone(value);selected=null;paint()},legal:()=>chessLegalMoves(position),move:value=>{const next=chessMove(position,value);if(next){position=next;paint()}return!!next},state:()=>structuredClone(position)};
   window.advanceTime=()=>{};reset();return()=>{destroyed=true;if(cpuTimer)clearTimeout(cpuTimer);removeEventListener("keydown",key);delete window.__BOD_BOARD_TEST__};
 }
 
 function checkersGame(host) {
-  setHTML(host, `<div class="game-status"><span>AMERICAN CHECKERS</span><span id="checkersControls">YOU: RED · CPU: BLACK</span></div><div class="game-wrap board-game-wrap"><div class="board-game-layout"><div><div class="board-grid checkers-board" id="checkersBoard" role="grid" aria-label="Checkers board"></div><div class="metric board-status" id="checkersStatus"></div></div><aside class="move-history"><h3>Move history</h3><div id="checkersHistory"></div></aside></div></div><div class="game-control-row"><div class="select-field"><label class="select-label" for="checkersPlayers">Game mode</label><select id="checkersPlayers" class="select-full"><option value="one">1 PLAYER</option><option value="two">2 PLAYERS</option></select></div><div class="select-field"><label class="select-label" for="checkersDifficulty">Difficulty</label><select id="checkersDifficulty" class="select-full"><option value="easy">EASY</option><option value="normal" selected>NORMAL</option><option value="hard">HARD</option></select></div><button class="gameRestart">RESTART</button></div>`);
+  setHTML(host, `<div class="game-status"><span>AMERICAN CHECKERS</span><span id="checkersControls">YOU: RED · CPU: BLACK</span></div><div class="game-wrap board-game-wrap"><div class="board-game-layout"><div><div class="board-grid checkers-board" id="checkersBoard" role="grid" aria-label="Checkers board"></div><div class="metric board-status" id="checkersStatus"></div></div><aside class="move-history"><h3>Move history</h3><div id="checkersHistory"></div></aside></div></div><div class="game-control-row"><div class="select-field"><label class="select-label" for="checkersPlayers">Game mode</label><select id="checkersPlayers" class="select-full"><option value="one">1 PLAYER</option><option value="two">2 PLAYERS</option></select></div><div class="select-field"><label class="select-label" for="checkersDifficulty">Difficulty</label><select id="checkersDifficulty" class="select-full"><option value="easy">EASY</option><option value="normal" selected>NORMAL</option><option value="hard">HARD</option></select></div><button class="gameRestart">RESTART</button><button id="saveCheckers">SAVE</button><button id="resumeCheckers" ${Store.data.savedGames.checkers ? "" : "disabled"}>RESUME</button></div><div class="output tiny" id="checkersSaveStatus">${Store.data.savedGames.checkers ? "SAVED CHECKERS MATCH READY" : "NO SAVED CHECKERS MATCH"}</div>`);
   let position=initialCheckersState(),selected=null,cursor=42,playerMode="one",cpuTimer=null,destroyed=false;
   const legalFrom=()=>selected===null?[]:checkersLegalMoves(position,selected);
   const scheduleCpu=()=>{if(cpuTimer)clearTimeout(cpuTimer);if(!destroyed&&playerMode==="one"&&position.turn==="b"&&position.result==="playing")cpuTimer=setTimeout(()=>{cpuTimer=null;let guard=0;do{const move=chooseCheckersMove(position,$("#checkersDifficulty").value,{easy:20,normal:70,hard:140}[$("#checkersDifficulty").value]);if(!move)break;position=checkersMove(position,move);guard++}while(position.turn==="b"&&position.forcedFrom!==null&&guard<12);selected=null;paint()},120)};
@@ -2798,9 +2899,11 @@ function checkersGame(host) {
     setHTML($("#checkersHistory"),position.history.length?position.history.map((move,index)=>`<span><b>${index+1}.</b> ${move}</span>`).join(""):`<span class="muted">NO MOVES</span>`);
   };
   const reset=()=>{if(cpuTimer)clearTimeout(cpuTimer);position=initialCheckersState();selected=null;cursor=42;playerMode=$("#checkersPlayers").value;paint()};
+  const saveMatch=()=>{Store.data.savedGames.checkers={position:structuredClone(position),playerMode,difficulty:$("#checkersDifficulty").value,savedAt:Date.now()};Store.save();awardAchievement("arcade:board-save");$("#resumeCheckers").disabled=false;$("#checkersSaveStatus").textContent="CHECKERS MATCH SAVED";arcadeSound("save")};
+  const resumeMatch=()=>{const saved=Store.data.savedGames.checkers;if(!saved?.position)return;position=structuredClone(saved.position);playerMode=saved.playerMode||"one";$("#checkersPlayers").value=playerMode;$("#checkersDifficulty").value=saved.difficulty||"normal";selected=null;cursor=42;awardAchievement("arcade:resume");$("#checkersSaveStatus").textContent="CHECKERS MATCH RESUMED";paint();scheduleCpu()};
   const key=event=>{const r=Math.floor(cursor/8),f=cursor%8;if(event.key==="ArrowUp")cursor=Math.max(0,cursor-8);if(event.key==="ArrowDown")cursor=Math.min(63,cursor+8);if(event.key==="ArrowLeft")cursor=r*8+Math.max(0,f-1);if(event.key==="ArrowRight")cursor=r*8+Math.min(7,f+1);if(event.key==="Enter"||event.key===" ")choose(cursor);if(event.key==="Escape"&&position.forcedFrom===null){selected=null;paint()}if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Enter"," "].includes(event.key)){event.preventDefault();paint()}};
-  addEventListener("keydown",key);$("#checkersPlayers").onchange=reset;$("#checkersDifficulty").onchange=reset;$(".gameRestart",host).onclick=reset;
-  window.render_game_to_text=()=>JSON.stringify({game:"checkers",mode:position.result,playerMode,difficulty:$("#checkersDifficulty").value,coordinateSystem:"a8 index 0 through h1 index 63",currentPlayer:position.turn,selected:selected===null?null:algebraic(selected),cursor:algebraic(cursor),forcedFrom:position.forcedFrom===null?null:algebraic(position.forcedFrom),legalDestinations:legalFrom().map(move=>algebraic(move.to)),pieces:position.board.map((piece,index)=>piece?{square:algebraic(index),piece}:null).filter(Boolean),history:position.history,result:position.result});
+  addEventListener("keydown",key);$("#checkersPlayers").onchange=reset;$("#checkersDifficulty").onchange=reset;$(".gameRestart",host).onclick=reset;$("#saveCheckers").onclick=saveMatch;$("#resumeCheckers").onclick=resumeMatch;
+  window.render_game_to_text=()=>JSON.stringify({game:"checkers",mode:position.result,playerMode,difficulty:$("#checkersDifficulty").value,coordinateSystem:"a8 index 0 through h1 index 63",currentPlayer:position.turn,selected:selected===null?null:algebraic(selected),cursor:algebraic(cursor),forcedFrom:position.forcedFrom===null?null:algebraic(position.forcedFrom),legalDestinations:legalFrom().map(move=>algebraic(move.to)),pieces:position.board.map((piece,index)=>piece?{square:algebraic(index),piece}:null).filter(Boolean),history:position.history,result:position.result,saved:!!Store.data.savedGames.checkers});
   window.__BOD_BOARD_TEST__={kind:"checkers",load:value=>{position=structuredClone(value);selected=null;paint()},legal:()=>checkersLegalMoves(position),move:value=>{const next=checkersMove(position,value);if(next){position=next;paint()}return!!next},state:()=>structuredClone(position)};
   window.advanceTime=()=>{};reset();return()=>{destroyed=true;if(cpuTimer)clearTimeout(cpuTimer);removeEventListener("keydown",key);delete window.__BOD_BOARD_TEST__};
 }
@@ -2813,6 +2916,7 @@ function settingsPage(root) {
   setHTML(root, pageFrame("SETTINGS", "Customize the terminal, Matrix display, layout, and favorite modules.", `<div class="grid">
     <div class="card"><h3>Terminal theme</h3><div class="select-field"><label class="select-label" for="themeSetting">Theme preset</label><select id="themeSetting" class="select-full">${Object.entries(TERMINAL_THEMES).map(([id, theme]) => `<option value="${id}" ${Store.data.settings.terminalTheme === id ? "selected" : ""}>${theme.name}</option>`).join("")}</select></div><label>Custom accent color<input id="accentSetting" type="color" value="${Store.data.settings.accent}" style="height:45px"></label><p class="muted tiny">Changing the preset restores that theme’s matching accent. The color picker can then override it.</p></div>
     <div class="card"><h3>Matrix display</h3><label class="item"><input id="rainSetting" type="checkbox" ${Store.data.settings.rain ? "checked" : ""} style="width:auto"> Digital rain enabled</label><label>Rain brightness <output id="brightnessValue">${Math.round(Store.data.settings.matrixBrightness * 100)}%</output><input id="brightnessSetting" type="range" min=".1" max="1" step=".05" value="${Store.data.settings.matrixBrightness}"></label><label>Rain speed <output id="rainSpeedValue">${Store.data.settings.density.toFixed(1)}×</output><input id="densitySetting" type="range" min=".4" max="2" step=".1" value="${Store.data.settings.density}"></label></div>
+    <div class="card"><h3>Arcade audio</h3><label class="item"><input id="soundSetting" type="checkbox" ${Store.data.settings.sound ? "checked" : ""} style="width:auto"> Sound effects enabled</label><p class="muted">Generated locally with Web Audio. No audio files, CDN, or network request is used.</p></div>
     <div class="card"><h3>Interface density</h3><div class="density-options" role="group" aria-label="Interface density"><button data-density="compact" class="${Store.data.settings.uiDensity === "compact" ? "active" : ""}">COMPACT</button><button data-density="comfortable" class="${Store.data.settings.uiDensity === "comfortable" ? "active" : ""}">COMFORTABLE</button></div><p class="muted">Compact mode reduces spacing and control height so more information fits inside the popup.</p></div>
     <div class="card"><h3>Data</h3><p class="muted">Data is stored only for this website origin. Reset permanently deletes notes, tasks, history, settings, favorites, and scores.</p><button id="resetData" class="danger">RESET ALL LOCAL DATA</button></div>
     <div class="card full"><h3>Favorite modules</h3><p class="muted">Favorites appear first in the sidebar and Quick Launch in the order shown here.</p><div class="row wrap"><div class="select-field favorite-picker"><label class="select-label" for="favoriteAddSelect">Module</label><select id="favoriteAddSelect" class="select-full" ${favoriteOptions ? "" : "disabled"}>${favoriteOptions || `<option>All modules added</option>`}</select></div><button id="favoriteAdd" ${favoriteOptions ? "" : "disabled"}>ADD FAVORITE</button></div><div class="favorite-list" id="favoriteList"></div></div>
@@ -2840,6 +2944,7 @@ function settingsPage(root) {
     });
   };
   paintFavorites();
+  $("#soundSetting").onchange = e => { Store.update("settings.sound", e.target.checked); arcadeSound("tick"); };
   $("#rainSetting").onchange = e => Store.update("settings.rain", e.target.checked);
   $("#brightnessSetting").oninput = e => {
     Store.update("settings.matrixBrightness", Number(e.target.value));
@@ -2878,7 +2983,7 @@ function resetAll() {
 function helpPage(root) {
   setHTML(root, pageFrame("HELP & SHORTCUTS", "Operational notes for the dashboard.", `<div class="grid"><div class="card"><h3>Global controls</h3><div class="list"><div class="item"><kbd>Ctrl/⌘ K</kbd><span>Command palette</span></div><div class="item"><kbd>Esc</kbd><span>Close palette / exit fullscreen</span></div><div class="item"><kbd>F</kbd><span>Fullscreen active canvas game</span></div></div></div>
     <div class="card"><h3>Game controls</h3><div class="list"><div class="item"><kbd>WASD / Arrows</kbd><span>Snake, 2048, Pong, Tron, Breakout, Invaders</span></div><div class="item"><kbd>Space / P</kbd><span>Pause or shoot where shown</span></div><div class="item"><kbd>Q / E / Enter / Shift</kbd><span>Two-player Minesweeper open and flag</span></div><div class="item"><kbd>Right click</kbd><span>Flag a Minesweeper cell</span></div></div></div>
-    <div class="card full"><h3>Expanded Arcade</h3><p class="muted">Twelve offline games include full-rule Chess, American Checkers, Breakout, Connect Four, Tron, Space Invaders, and Memory Match. Chess and Checkers support CPU and local two-player modes.</p></div>
+    <div class="card full"><h3>Expanded Arcade</h3><p class="muted">Twelve offline games include full-rule Chess, American Checkers, Breakout, Connect Four, Tron, Space Invaders, and Memory Match. Arcade polish adds local sound effects, achievements, a leaderboard/stats view, optional gamepad fallback, and save/resume for Chess and Checkers.</p></div>
     <div class="card full"><h3>Calendar tools</h3><p class="muted">Browse a Sunday-first monthly calendar, compare dates, add or subtract whole days, and calculate age using local calendar dates.</p></div>
     <div class="card full"><h3>World Clock</h3><p class="muted">Save live IANA time zones and convert a chosen local date and time with daylight-saving gap and overlap detection.</p></div>
     <div class="card full"><h3>Color Tools</h3><p class="muted">Convert HEX, RGB, and HSL; generate palettes; check WCAG contrast; and preview approximate color-vision simulations.</p></div>

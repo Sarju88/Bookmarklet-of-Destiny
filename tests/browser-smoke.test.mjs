@@ -1226,6 +1226,15 @@ test("expanded arcade mounts twelve games and exercises multiplayer controls", a
     await page.goto(`${base}/preview.html?page=games&game=breakout`);
     assert.equal(await page.locator("[data-game]").count(), 12);
     const gameState = () => page.evaluate(() => JSON.parse(window.render_game_to_text()));
+    assert.match(await page.locator("#gamepadStatus").textContent(), /GAMEPAD:/);
+    assert.equal(await page.locator("#soundToggle").textContent(), "MUTED");
+    await page.locator("#soundToggle").click();
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("bookmarklet-of-destiny:v1")).settings.sound), true);
+    assert.equal(await page.locator("#soundToggle").textContent(), "SOUND ON");
+    await page.locator("[data-arcade-stats]").click();
+    assert.equal((await gameState()).game, "arcade-stats");
+    assert.match(await page.locator("#gameHost").textContent(), /Leaderboard/);
+    await page.locator('[data-game="breakout"]').click();
 
     let state = await gameState();
     assert.equal(state.game, "breakout");
@@ -1328,6 +1337,14 @@ test("Chess and Checkers support CPU, two-player, keyboard, and special UI state
     await page.waitForFunction(() => JSON.parse(window.render_game_to_text()).history.length >= 2);
     assert.match((await state()).history[0], /^e4/);
     assert.equal((await state()).currentPlayer, "w");
+    await page.locator("#saveChess").click();
+    assert.equal((await state()).saved, true);
+    assert.match(await page.locator("#chessSaveStatus").textContent(), /SAVED/);
+    await page.locator(".gameRestart").click();
+    assert.equal((await state()).history.length, 0);
+    await page.locator("#resumeChess").click();
+    assert.ok((await state()).history.length >= 2);
+    assert.match(await page.locator("#chessSaveStatus").textContent(), /RESUMED/);
     await page.locator("#chessPlayers").selectOption("two");
     const chessScore = await page.evaluate(() => JSON.parse(localStorage.getItem("bookmarklet-of-destiny:v1")).scores.chess);
     await page.keyboard.press("ArrowUp");
@@ -1350,6 +1367,11 @@ test("Chess and Checkers support CPU, two-player, keyboard, and special UI state
     await page.locator('[data-game="checkers"]').click();
     assert.equal((await state()).game, "checkers");
     assert.equal(await page.locator(".checkers-board .board-square").count(), 64);
+    await page.locator("#saveCheckers").click();
+    assert.equal((await state()).saved, true);
+    await page.locator(".gameRestart").click();
+    await page.locator("#resumeCheckers").click();
+    assert.match(await page.locator("#checkersSaveStatus").textContent(), /RESUMED/);
     await page.locator("#checkersPlayers").selectOption("two");
     const checkersScore = await page.evaluate(() => JSON.parse(localStorage.getItem("bookmarklet-of-destiny:v1")).scores.checkers);
     const forced = { board:Array(64).fill(""),turn:"r",forcedFrom:null,history:[],result:"playing" };
@@ -1369,6 +1391,14 @@ test("Chess and Checkers support CPU, two-player, keyboard, and special UI state
     assert.equal(await page.locator(".board-grid").isVisible(), true);
     assert.equal(await page.locator(".content").evaluate(node => node.scrollHeight > node.clientHeight), true);
     await capture(page, `${shots}/checkers.png`);
+    await page.locator("[data-arcade-stats]").click();
+    const stats = await state();
+    assert.equal(stats.game, "arcade-stats");
+    assert.equal(stats.savedGames.chess, true);
+    assert.equal(stats.savedGames.checkers, true);
+    assert.ok(stats.achievements.includes("arcade:board-save"));
+    assert.ok(stats.achievements.includes("arcade:resume"));
+    await capture(page, `${shots}/arcade-stats.png`);
   });
 });
 

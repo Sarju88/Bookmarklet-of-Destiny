@@ -106,3 +106,16 @@ Original prompt: Build the complete “Bookmarklet of Destiny” plan: a self-co
 - Added compact and comfortable interface density modes across preview and popup layouts.
 - Added persistent favorite modules with add, remove, and reorder controls; favorites lead the sidebar and Quick Launch.
 - Added migration-safe defaults, customization browser coverage, Help and README documentation, and regenerated artifacts.
+
+## Stage 5 Arcade Polish progress
+
+- Started Stage 5 only: offline sound toggle, achievements, arcade stats, Chess/Checkers save-resume, and optional gamepad status/support.
+- Added migration-safe `achievements` and Chess/Checkers `savedGames` storage.
+- Added Web Audio generated sound effects with arcade and Settings toggles.
+- Added Arcade Stats with leaderboard, achievement badges, saved-game status, and gamepad status/polling fallback.
+- Added save/resume controls for Chess and Checkers.
+- Browser smoke coverage passes for sound toggle, stats, gamepad status, and board-game save/resume.
+- Web-game client burst verified Chess UI/state after Stage 5 toolbar changes.
+- Full automated suite passed three times after generated artifacts were rebuilt.
+- Visually inspected installer, dashboard, preview Arcade Stats, and real-popup Arcade Stats.
+- Stage 5 implementation is complete; stop before Stage 6 Appearance Customization.
