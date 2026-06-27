@@ -148,14 +148,34 @@ test("install page, dashboard utilities, and local persistence work", async () =
 test("customization themes, Matrix brightness, density, and favorite ordering persist", async () => {
   await withBrowser(async ({ page }) => {
     await page.goto(`${base}/preview.html?page=settings`);
-    await page.locator("#themeSetting").selectOption("amber");
-    assert.equal(await page.locator("#app").getAttribute("data-theme"), "amber");
-    assert.equal(await page.locator("#app").evaluate(node => getComputedStyle(node).getPropertyValue("--bg").trim()), "#080500");
-    assert.equal(await page.locator("#accentSetting").inputValue(), "#ffbd3e");
+    await page.evaluate(() => localStorage.setItem("bookmarklet-of-destiny:v1", JSON.stringify({ version: 1, settings: { popupLayout: { width: 700, height: 520, left: 20, top: 30 } } })));
+    await page.reload();
+    await page.locator('[data-page="settings"]').click();
+    assert.equal(await page.locator("#popupLayoutStatus").textContent(), "700×520 @ 20,30");
+    await page.locator("#resetPopupLayout").click();
+    assert.equal(await page.locator("#popupLayoutStatus").textContent(), "DEFAULT CENTERED POPUP");
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("bookmarklet-of-destiny:v1")).settings.popupLayout), null);
+
+    await page.locator("#themeSetting").selectOption("stealth");
+    assert.equal(await page.locator("#app").getAttribute("data-theme"), "stealth");
+    assert.equal(await page.locator("#app").evaluate(node => getComputedStyle(node).getPropertyValue("--bg").trim()), "#010202");
+    assert.equal(await page.locator("#accentSetting").inputValue(), "#7dffad");
+
+    await page.locator('[data-accent-preset="#ff5577"]').click();
+    assert.equal(await page.locator("#accentSetting").inputValue(), "#ff5577");
+    assert.equal(await page.locator("#app").evaluate(node => getComputedStyle(node).getPropertyValue("--green").trim()), "#ff5577");
 
     await page.locator("#brightnessSetting").fill("0.85");
     assert.equal(await page.locator("#brightnessValue").textContent(), "85%");
     assert.equal(await page.locator(".matrix").evaluate(node => getComputedStyle(node).opacity), "0.85");
+
+    await page.locator("#backgroundSetting").fill("0.9");
+    assert.equal(await page.locator("#backgroundValue").textContent(), "90%");
+    assert.match(await page.locator("#app").evaluate(node => node.style.getPropertyValue("--shell-left")), /90%/);
+
+    await page.locator("#fontScaleSetting").fill("1.15");
+    assert.equal(await page.locator("#fontScaleValue").textContent(), "115%");
+    assert.equal(await page.locator("#app").evaluate(node => node.style.getPropertyValue("--font-scale")), "1.15");
 
     await page.locator('[data-density="compact"]').click();
     assert.equal(await page.locator("#app").getAttribute("data-density"), "compact");
@@ -175,9 +195,11 @@ test("customization themes, Matrix brightness, density, and favorite ordering pe
     assert.equal(await page.locator('[data-quick="games"]').evaluate(node => node.classList.contains("favorite-quick")), true);
 
     await page.reload();
-    assert.equal(await page.locator("#app").getAttribute("data-theme"), "amber");
+    assert.equal(await page.locator("#app").getAttribute("data-theme"), "stealth");
     assert.equal(await page.locator("#app").getAttribute("data-density"), "compact");
     assert.equal(await page.locator(".matrix").evaluate(node => getComputedStyle(node).opacity), "0.85");
+    assert.equal(await page.locator("#app").evaluate(node => node.style.getPropertyValue("--font-scale")), "1.15");
+    assert.match(await page.locator("#app").evaluate(node => node.style.getPropertyValue("--shell-left")), /90%/);
     assert.deepEqual((await page.locator(".nav [data-page]").evaluateAll(nodes => nodes.slice(0, 3).map(node => node.dataset.page))), ["home", "games", "calculator"]);
   });
 });
@@ -994,12 +1016,18 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
       assert.ok((await panel.locator(".page h2").textContent()).trim().length > 0);
     }
     await panel.locator('[data-page="settings"]').click();
-    await panel.locator("#themeSetting").selectOption("violet");
+    await panel.locator("#themeSetting").selectOption("stealth");
     await panel.locator("#brightnessSetting").fill("0.7");
+    await panel.locator("#backgroundSetting").fill("0.9");
+    await panel.locator("#fontScaleSetting").fill("1.1");
+    await panel.locator('[data-accent-preset="#35e7ff"]').click();
     await panel.locator('[data-density="compact"]').click();
-    assert.equal(await panel.locator("#app").getAttribute("data-theme"), "violet");
+    assert.equal(await panel.locator("#app").getAttribute("data-theme"), "stealth");
     assert.equal(await panel.locator("#app").getAttribute("data-density"), "compact");
     assert.equal(await panel.locator(".matrix").evaluate(node => getComputedStyle(node).opacity), "0.7");
+    assert.equal(await panel.locator("#app").evaluate(node => node.style.getPropertyValue("--font-scale")), "1.1");
+    assert.match(await panel.locator("#app").evaluate(node => node.style.getPropertyValue("--shell-left")), /90%/);
+    assert.equal(await panel.locator("#accentSetting").inputValue(), "#35e7ff");
     await panel.locator('[data-page="developer"]').click();
     await panel.locator("#regexPattern").fill("\\d+");
     await panel.locator("#regexInput").fill("Version 4 has 12 tools");

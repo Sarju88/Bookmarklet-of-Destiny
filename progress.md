@@ -120,3 +120,11 @@ Original prompt: Build the complete “Bookmarklet of Destiny” plan: a self-co
 - Visually inspected installer, dashboard, preview Arcade Stats, and real-popup Arcade Stats.
 - Stage 5 implementation is complete; stop before Stage 6 Appearance Customization.
 - Increased generated arcade sound volume from low feedback tones to louder 0.12 peak gain with a slightly longer release.
+
+## Stage 6 Appearance Customization progress
+
+- Added Stealth Mode, accent preset buttons, font-size scaling, background intensity controls, and popup layout memory controls in Settings.
+- Added migration-safe `fontScale`, `backgroundIntensity`, and `popupLayout` settings with clamping on load.
+- Updated popup launcher to read saved popup layout, clamp it to the available screen, and save popup size/position best-effort.
+- Applied appearance settings through dashboard CSS variables so modules inherit changes without affecting the opener page.
+- Updated Help, README, browser smoke coverage, and generated artifacts for the Stage 6 appearance controls.

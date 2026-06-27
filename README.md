@@ -23,7 +23,7 @@ A self-contained Chrome bookmarklet that opens a centered popup dashboard with M
 - Full-rule Chess and American Checkers with offline CPU and local two-player play
 - Local two-player modes in Snake, Minesweeper, Tic-Tac-Toe, Pong, Connect Four, Tron, and Memory
 - Arcade polish with local sound effects, achievements, leaderboard/stats, gamepad fallback, and Chess/Checkers save-resume
-- Four terminal themes, adjustable Matrix brightness and speed, compact/comfortable layouts, and reorderable favorite modules
+- Five terminal themes including Stealth Mode, adjustable Matrix brightness/speed, background intensity, font size, popup layout memory, compact/comfortable layouts, accent presets, and reorderable favorite modules
 
 ## Install
 

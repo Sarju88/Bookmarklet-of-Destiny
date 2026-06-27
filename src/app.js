@@ -51,8 +51,10 @@ const TERMINAL_THEMES = {
   matrix: { name: "Matrix Green", bg: "#020704", panel: "#06110bbd", panel2: "#091a10", line: "#174c2b", accent: "#39ff88", text: "#9affbd", muted: "#669276" },
   amber: { name: "Amber Terminal", bg: "#080500", panel: "#171005bd", panel2: "#211707", line: "#624315", accent: "#ffbd3e", text: "#ffe0a1", muted: "#a37d45" },
   cyan: { name: "Cyber Cyan", bg: "#010708", panel: "#041416bd", panel2: "#071d20", line: "#15535b", accent: "#35e7ff", text: "#a9f6ff", muted: "#57949b" },
-  violet: { name: "Ultraviolet", bg: "#07030b", panel: "#13091bbd", panel2: "#1c0d27", line: "#51236a", accent: "#d66bff", text: "#edbdff", muted: "#946aa3" }
+  violet: { name: "Ultraviolet", bg: "#07030b", panel: "#13091bbd", panel2: "#1c0d27", line: "#51236a", accent: "#d66bff", text: "#edbdff", muted: "#946aa3" },
+  stealth: { name: "Stealth Mode", bg: "#010202", panel: "#020403e6", panel2: "#050807", line: "#1f2b24", accent: "#7dffad", text: "#d8ffe4", muted: "#5f7368" }
 };
+const ACCENT_PRESETS = ["#39ff88", "#ffbd3e", "#35e7ff", "#d66bff", "#ff5577", "#ffffff"];
 
 const defaults = {
   version: 1,
@@ -75,6 +77,7 @@ const defaults = {
   settings: {
     rain: true, sound: false, density: 1, accent: "#39ff88",
     terminalTheme: "matrix", matrixBrightness: .58, uiDensity: "comfortable", favoriteModules: [],
+    fontScale: 1, backgroundIntensity: .78, popupLayout: null,
     usdInrRate: 94.37, usdInrSourceDate: "", usdInrUpdatedAt: 0,
     usdInrLastAttemptAt: 0, usdInrManual: false,
     worldClocks: ["America/New_York", "Europe/London", "Asia/Kolkata", "Asia/Tokyo"],
@@ -92,6 +95,15 @@ const Store = {
     if (!TERMINAL_THEMES[this.data.settings.terminalTheme]) this.data.settings.terminalTheme = "matrix";
     if (!["compact", "comfortable"].includes(this.data.settings.uiDensity)) this.data.settings.uiDensity = "comfortable";
     this.data.settings.matrixBrightness = Math.min(1, Math.max(.1, Number(this.data.settings.matrixBrightness) || .58));
+    this.data.settings.fontScale = Math.min(1.25, Math.max(.85, Number(this.data.settings.fontScale) || 1));
+    this.data.settings.backgroundIntensity = Math.min(1, Math.max(.35, Number(this.data.settings.backgroundIntensity) || .78));
+    const layout = this.data.settings.popupLayout;
+    this.data.settings.popupLayout = layout && Number.isFinite(Number(layout.width)) && Number.isFinite(Number(layout.height)) ? {
+      width: Math.round(Math.min(1200, Math.max(620, Number(layout.width)))),
+      height: Math.round(Math.min(900, Math.max(500, Number(layout.height)))),
+      left: Math.round(Math.max(0, Number(layout.left) || 0)),
+      top: Math.round(Math.max(0, Number(layout.top) || 0))
+    } : null;
     this.data.settings.favoriteModules = [...new Set(Array.isArray(this.data.settings.favoriteModules) ? this.data.settings.favoriteModules : [])].filter(id => FAVORITE_PAGE_IDS.includes(id));
     this.migrateOrganizer();
     return this.data;
@@ -224,10 +236,20 @@ function applyAppearance() {
   const settings = Store.data.settings;
   const theme = TERMINAL_THEMES[settings.terminalTheme] || TERMINAL_THEMES.matrix;
   const customAccent = /^#[0-9a-f]{6}$/i.test(settings.accent) ? settings.accent : theme.accent;
+  const intensity = Math.round((settings.backgroundIntensity ?? .78) * 100);
+  const low = Math.max(35, Math.min(94, intensity));
+  const high = Math.max(24, Math.min(78, Math.round(intensity * .6)));
   const values = {
     "--bg": theme.bg, "--panel": theme.panel, "--panel2": theme.panel2, "--line": theme.line,
     "--green": customAccent, "--green2": theme.text, "--muted": theme.muted,
-    "--glow": `0 0 22px ${customAccent}30`, "--matrix-opacity": settings.matrixBrightness
+    "--glow": `0 0 ${settings.terminalTheme === "stealth" ? 10 : 22}px ${customAccent}${settings.terminalTheme === "stealth" ? "18" : "30"}`,
+    "--matrix-opacity": settings.matrixBrightness,
+    "--font-scale": settings.fontScale,
+    "--shell-left": `color-mix(in srgb,var(--bg) ${low}%,transparent)`,
+    "--shell-right": `color-mix(in srgb,var(--bg) ${high}%,transparent)`,
+    "--surface-bg": `color-mix(in srgb,var(--bg) ${low}%,transparent)`,
+    "--chrome-bg": `color-mix(in srgb,var(--bg) ${Math.min(96, low + 8)}%,transparent)`,
+    "--card-bg": `color-mix(in srgb,var(--green) ${settings.terminalTheme === "stealth" ? 1 : 3}%,var(--surface-bg))`
   };
   Object.entries(values).forEach(([key, value]) => appMount.style.setProperty(key, value));
   appMount.dataset.density = settings.uiDensity;
@@ -2913,11 +2935,13 @@ function settingsPage(root) {
     const page = PAGES.find(([pageId]) => pageId === id);
     return `<option value="${id}">${page[2]}</option>`;
   }).join("");
+  const popupLayoutText = Store.data.settings.popupLayout ? `${Store.data.settings.popupLayout.width}×${Store.data.settings.popupLayout.height} @ ${Store.data.settings.popupLayout.left},${Store.data.settings.popupLayout.top}` : "DEFAULT CENTERED POPUP";
   setHTML(root, pageFrame("SETTINGS", "Customize the terminal, Matrix display, layout, and favorite modules.", `<div class="grid">
-    <div class="card"><h3>Terminal theme</h3><div class="select-field"><label class="select-label" for="themeSetting">Theme preset</label><select id="themeSetting" class="select-full">${Object.entries(TERMINAL_THEMES).map(([id, theme]) => `<option value="${id}" ${Store.data.settings.terminalTheme === id ? "selected" : ""}>${theme.name}</option>`).join("")}</select></div><label>Custom accent color<input id="accentSetting" type="color" value="${Store.data.settings.accent}" style="height:45px"></label><p class="muted tiny">Changing the preset restores that theme’s matching accent. The color picker can then override it.</p></div>
-    <div class="card"><h3>Matrix display</h3><label class="item"><input id="rainSetting" type="checkbox" ${Store.data.settings.rain ? "checked" : ""} style="width:auto"> Digital rain enabled</label><label>Rain brightness <output id="brightnessValue">${Math.round(Store.data.settings.matrixBrightness * 100)}%</output><input id="brightnessSetting" type="range" min=".1" max="1" step=".05" value="${Store.data.settings.matrixBrightness}"></label><label>Rain speed <output id="rainSpeedValue">${Store.data.settings.density.toFixed(1)}×</output><input id="densitySetting" type="range" min=".4" max="2" step=".1" value="${Store.data.settings.density}"></label></div>
+    <div class="card"><h3>Terminal theme</h3><div class="select-field"><label class="select-label" for="themeSetting">Theme preset</label><select id="themeSetting" class="select-full">${Object.entries(TERMINAL_THEMES).map(([id, theme]) => `<option value="${id}" ${Store.data.settings.terminalTheme === id ? "selected" : ""}>${theme.name}</option>`).join("")}</select></div><label>Custom accent color<input id="accentSetting" type="color" value="${Store.data.settings.accent}" style="height:45px"></label><div class="accent-presets" aria-label="Accent presets">${ACCENT_PRESETS.map(color => `<button data-accent-preset="${color}" class="${Store.data.settings.accent.toLowerCase() === color ? "active" : ""}" style="--swatch:${color}"><i></i>${color}</button>`).join("")}</div><p class="muted tiny">Changing the preset restores that theme’s matching accent. The color picker and preset buttons can then override it.</p></div>
+    <div class="card"><h3>Matrix display</h3><label class="item"><input id="rainSetting" type="checkbox" ${Store.data.settings.rain ? "checked" : ""} style="width:auto"> Digital rain enabled</label><label>Rain brightness <output id="brightnessValue">${Math.round(Store.data.settings.matrixBrightness * 100)}%</output><input id="brightnessSetting" type="range" min=".1" max="1" step=".05" value="${Store.data.settings.matrixBrightness}"></label><label>Rain speed <output id="rainSpeedValue">${Store.data.settings.density.toFixed(1)}×</output><input id="densitySetting" type="range" min=".4" max="2" step=".1" value="${Store.data.settings.density}"></label><label>Background intensity <output id="backgroundValue">${Math.round(Store.data.settings.backgroundIntensity * 100)}%</output><input id="backgroundSetting" type="range" min=".35" max="1" step=".05" value="${Store.data.settings.backgroundIntensity}"></label></div>
     <div class="card"><h3>Arcade audio</h3><label class="item"><input id="soundSetting" type="checkbox" ${Store.data.settings.sound ? "checked" : ""} style="width:auto"> Sound effects enabled</label><p class="muted">Generated locally with Web Audio. No audio files, CDN, or network request is used.</p></div>
-    <div class="card"><h3>Interface density</h3><div class="density-options" role="group" aria-label="Interface density"><button data-density="compact" class="${Store.data.settings.uiDensity === "compact" ? "active" : ""}">COMPACT</button><button data-density="comfortable" class="${Store.data.settings.uiDensity === "comfortable" ? "active" : ""}">COMFORTABLE</button></div><p class="muted">Compact mode reduces spacing and control height so more information fits inside the popup.</p></div>
+    <div class="card"><h3>Interface density</h3><div class="density-options" role="group" aria-label="Interface density"><button data-density="compact" class="${Store.data.settings.uiDensity === "compact" ? "active" : ""}">COMPACT</button><button data-density="comfortable" class="${Store.data.settings.uiDensity === "comfortable" ? "active" : ""}">COMFORTABLE</button></div><label>Font size <output id="fontScaleValue">${Math.round(Store.data.settings.fontScale * 100)}%</output><input id="fontScaleSetting" type="range" min=".85" max="1.25" step=".05" value="${Store.data.settings.fontScale}"></label><p class="muted">Compact mode reduces spacing and font size only affects the dashboard, not the page that launched it.</p></div>
+    <div class="card"><h3>Popup layout memory</h3><div class="output" id="popupLayoutStatus">${escapeHtml(popupLayoutText)}</div><p class="muted">The installed bookmarklet restores this layout when Chrome exposes popup size and position. Preview mode does not move browser windows.</p><button id="resetPopupLayout">RESET POPUP LAYOUT</button></div>
     <div class="card"><h3>Data</h3><p class="muted">Data is stored only for this website origin. Reset permanently deletes notes, tasks, history, settings, favorites, and scores.</p><button id="resetData" class="danger">RESET ALL LOCAL DATA</button></div>
     <div class="card full"><h3>Favorite modules</h3><p class="muted">Favorites appear first in the sidebar and Quick Launch in the order shown here.</p><div class="row wrap"><div class="select-field favorite-picker"><label class="select-label" for="favoriteAddSelect">Module</label><select id="favoriteAddSelect" class="select-full" ${favoriteOptions ? "" : "disabled"}>${favoriteOptions || `<option>All modules added</option>`}</select></div><button id="favoriteAdd" ${favoriteOptions ? "" : "disabled"}>ADD FAVORITE</button></div><div class="favorite-list" id="favoriteList"></div></div>
     <div class="card full"><h3>Storage identity</h3><div class="output">${escapeHtml(location.origin === "null" ? "opaque preview origin" : location.origin)}<br>KEY: ${APP_KEY}</div></div></div>`));
@@ -2955,18 +2979,42 @@ function settingsPage(root) {
     Store.update("settings.density", Number(e.target.value));
     $("#rainSpeedValue").textContent = `${Number(e.target.value).toFixed(1)}×`;
   };
+  $("#backgroundSetting").oninput = e => {
+    Store.update("settings.backgroundIntensity", Number(e.target.value));
+    $("#backgroundValue").textContent = `${Math.round(Number(e.target.value) * 100)}%`;
+    applyAppearance();
+  };
+  $("#fontScaleSetting").oninput = e => {
+    Store.update("settings.fontScale", Number(e.target.value));
+    $("#fontScaleValue").textContent = `${Math.round(Number(e.target.value) * 100)}%`;
+    applyAppearance();
+  };
   $("#themeSetting").onchange = e => {
     Store.data.settings.terminalTheme = e.target.value;
     Store.data.settings.accent = TERMINAL_THEMES[e.target.value].accent;
     Store.save(); applyAppearance();
     $("#accentSetting").value = Store.data.settings.accent;
+    $$("[data-accent-preset]", root).forEach(button => button.classList.toggle("active", button.dataset.accentPreset.toLowerCase() === Store.data.settings.accent.toLowerCase()));
   };
   $("#accentSetting").oninput = e => { Store.update("settings.accent", e.target.value); applyAppearance(); };
+  $$("[data-accent-preset]", root).forEach(button => button.onclick = () => {
+    Store.update("settings.accent", button.dataset.accentPreset);
+    $("#accentSetting").value = Store.data.settings.accent;
+    applyAppearance();
+    $$("[data-accent-preset]", root).forEach(item => item.classList.toggle("active", item === button));
+  });
   $$("[data-density]", root).forEach(button => button.onclick = () => {
     Store.update("settings.uiDensity", button.dataset.density);
     applyAppearance();
     $$("[data-density]", root).forEach(item => item.classList.toggle("active", item === button));
   });
+  $("#resetPopupLayout").onclick = () => {
+    Store.data.settings.popupLayout = null;
+    Store.save();
+    bootstrap?.resetLayout?.();
+    $("#popupLayoutStatus").textContent = "DEFAULT CENTERED POPUP";
+    toast("Popup layout reset");
+  };
   $("#favoriteAdd").onclick = () => {
     const id = $("#favoriteAddSelect").value;
     if (!FAVORITE_PAGE_IDS.includes(id) || Store.data.settings.favoriteModules.includes(id)) return;
@@ -2994,7 +3042,7 @@ function helpPage(root) {
     <div class="card full"><h3>Productivity</h3><p class="muted">Plan the day with manual snippet storage, session checklists, a visual focus timer, quick links, habit tracking, and a local daily dashboard.</p></div>
     <div class="card full"><h3>Social</h3><p class="muted">Open and copy reliable quick links for YouTube, Gmail, and Discord in normal tabs without embedding blocked social sites inside the popup.</p></div>
     <div class="card full"><h3>Notes & Tasks</h3><p class="muted">Create searchable Markdown notes with tags, pins, archive and trash, plus prioritized tasks with local due dates and JSON backup.</p></div>
-    <div class="card full"><h3>Customization</h3><p class="muted">Choose a Matrix, amber, cyan, or violet terminal theme; adjust digital-rain brightness and speed; switch between comfortable and compact layouts; and arrange favorite modules at the top of navigation and Quick Launch.</p></div>
+    <div class="card full"><h3>Customization</h3><p class="muted">Choose Matrix, amber, cyan, violet, or Stealth Mode themes; adjust digital-rain brightness and speed; tune background intensity and font size; use accent presets; save popup layout when Chrome exposes it; switch between comfortable and compact layouts; and arrange favorite modules at the top of navigation and Quick Launch.</p></div>
     <div class="card full"><h3>Browser limitations</h3><p class="muted">Chrome blocks bookmarklets on protected pages including <code>chrome://</code>, the New Tab page, extension pages, and the Chrome Web Store. On ordinary sites, the dashboard opens in a separate resizable popup window.</p></div>
     <div class="card full"><h3>Privacy</h3><p class="muted">Only the optional USD/INR updater contacts the fixed Frankfurter exchange-rate endpoint. All other tools load no external assets and use no analytics or accounts. Notes, tasks, settings, history, rates, and scores stay in local storage belonging to the page where the bookmarklet launched.</p></div></div>`));
 }
