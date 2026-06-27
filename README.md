@@ -16,6 +16,7 @@ A self-contained Chrome bookmarklet that opens a centered popup dashboard with M
 - Offline file tools for image resize/export, text viewing, CSV preview, JSON formatting, YAML-style preview, and checksums
 - Study tools with flashcards, deterministic quiz prompts, formulas, periodic table, unit circle, and math helpers
 - Productivity tools with manual snippet history, session checklists, focus timer, quick links, habits, and daily dashboard
+- Social quick panel for opening and copying YouTube, Gmail, Discord, and custom social links in normal tabs
 - Unit and USD/INR conversion
 - Text, random, QR, drawing, and page-control tools
 - Snake Battle, 2048, Minesweeper Race, Tic-Tac-Toe, Pong, Breakout, Connect Four, Tron, Space Invaders, and Memory Match

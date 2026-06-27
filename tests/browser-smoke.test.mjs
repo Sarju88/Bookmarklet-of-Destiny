@@ -894,6 +894,80 @@ test("productivity tools manage snippets, checklist, focus, links, habits, and r
   });
 });
 
+test("social quick panel builds safe links and manages shortcuts", async () => {
+  await withBrowser(async ({ context, page }) => {
+    await page.goto(`${base}/preview.html?page=social`);
+    const socialState = () => page.evaluate(() => JSON.parse(window.render_social_to_text()));
+    assert.equal(await page.locator(".page h2").textContent(), "SOCIAL");
+
+    await page.locator("#youtubeQuery").fill("lofi coding");
+    await page.locator("#youtubeSearch").click();
+    assert.match((await socialState()).youtubeUrl, /youtube\.com\/results\?search_query=lofi%20coding/);
+    await page.locator("#youtubeCopySearch").click();
+    const ytPopup = context.waitForEvent("page");
+    await page.locator("#youtubeOpenSearch").click();
+    const ytPage = await ytPopup;
+    assert.match(ytPage.url(), /youtube\.com\/results/);
+    await ytPage.close();
+
+    await page.locator("#gmailTo").fill("test@example.com");
+    await page.locator("#gmailSubject").fill("Homework");
+    await page.locator("#gmailBody").fill("Done");
+    await page.locator("#gmailBuildMailto").click();
+    assert.match((await socialState()).gmailUrl, /^mailto:/);
+    await page.locator("#gmailBuildCompose").click();
+    assert.match((await socialState()).gmailUrl, /mail\.google\.com\/mail\/\?view=cm/);
+    await page.locator("#gmailSearchQuery").fill("from:teacher");
+    await page.locator("#gmailBuildSearch").click();
+    assert.match((await socialState()).gmailUrl, /#search\/from%3Ateacher/);
+    await page.locator("#gmailCopyUrl").click();
+
+    await page.locator("#discordUrl").fill("javascript:alert(1)");
+    await page.locator("#discordSaveBuilt").click();
+    assert.equal((await socialState()).discordUrl, "");
+    assert.match(await page.locator("#discordOutput").textContent(), /ERROR/);
+    await page.locator("#discordUrl").fill("https://discord.com/channels/123/456");
+    await page.locator("#discordSaveBuilt").click();
+    assert.match((await socialState()).discordUrl, /discord\.com\/channels\/123\/456/);
+    await page.locator("#discordCopySaved").click();
+
+    await page.locator("#socialTitle").fill("Bad shortcut");
+    await page.locator("#socialUrl").fill("ftp://example.com");
+    await page.locator("#saveSocialShortcut").click();
+    assert.equal((await socialState()).shortcuts, 0);
+    assert.match(await page.locator("#socialError").textContent(), /ERROR/);
+    await page.locator("#socialTitle").fill("Music");
+    await page.locator("#socialService").selectOption("youtube");
+    await page.locator("#socialUrl").fill("https://www.youtube.com/@openai");
+    await page.locator("#saveSocialShortcut").click();
+    assert.equal((await socialState()).shortcuts, 1);
+    assert.deepEqual((await socialState()).shortcutTitles, ["Music"]);
+    await page.locator("[data-copy-social]").click();
+    await page.locator("[data-edit-social]").click();
+    await page.locator("#socialTitle").fill("Music Edited");
+    await page.locator("#saveSocialShortcut").click();
+    assert.deepEqual((await socialState()).shortcutTitles, ["Music Edited"]);
+    const shortcutPopup = context.waitForEvent("page");
+    await page.locator("[data-open-social]").click();
+    const opened = await shortcutPopup;
+    assert.match(opened.url(), /youtube\.com/);
+    await opened.close();
+
+    await page.reload();
+    await page.locator('[data-page="social"]').click();
+    assert.equal((await socialState()).shortcuts, 1);
+    await capture(page, `${shots}/social.png`);
+    await page.click('[data-page="home"]');
+    assert.equal(await page.evaluate(() => typeof window.render_social_to_text), "undefined");
+
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator('[data-page="settings"]').click();
+    await page.locator("#resetData").click();
+    await page.locator('[data-page="social"]').click();
+    assert.equal((await socialState()).shortcuts, 0);
+  });
+});
+
 test("bookmarklet opens a reusable self-contained popup on strict CSP pages", async () => {
   await withBrowser(async ({ context, page }) => {
     const raw = await readFile("dist/bookmarklet.txt", "utf8");
@@ -914,7 +988,7 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     assert.equal(context.pages().length, 2);
     assert.equal(await panel.locator("html").getAttribute("data-ready"), "1");
     assert.equal(panel.url(), "about:blank");
-    for (const module of ["calculator", "organizer", "time", "calendar", "worldclock", "colors", "convert", "text", "developer", "inspector", "files", "study", "productivity", "random", "qr", "draw", "page", "games", "settings", "help", "home"]) {
+    for (const module of ["calculator", "organizer", "time", "calendar", "worldclock", "colors", "convert", "text", "developer", "inspector", "files", "study", "productivity", "social", "random", "qr", "draw", "page", "games", "settings", "help", "home"]) {
       await panel.locator(`[data-page="${module}"]`).click();
       await panel.locator(".page h2").waitFor();
       assert.ok((await panel.locator(".page h2").textContent()).trim().length > 0);
@@ -957,6 +1031,10 @@ test("bookmarklet opens a reusable self-contained popup on strict CSP pages", as
     assert.match(await panel.locator(".page h2").textContent(), /PRODUCTIVITY/);
     assert.equal(await panel.evaluate(() => JSON.parse(window.render_productivity_to_text()).activeTab), "dashboard");
     await capture(panel, `${shots}/productivity-popup.png`);
+    await panel.locator('[data-page="social"]').click();
+    assert.match(await panel.locator(".page h2").textContent(), /SOCIAL/);
+    assert.equal(await panel.evaluate(() => JSON.parse(window.render_social_to_text()).shortcuts), 0);
+    await capture(panel, `${shots}/social-popup.png`);
     await panel.locator('[data-page="organizer"]').click();
     await panel.locator("#newNote").click();
     await panel.locator("#noteTitle").fill("Popup note");

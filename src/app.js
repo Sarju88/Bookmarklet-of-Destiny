@@ -37,6 +37,7 @@ const PAGES = [
   ["files", "▤", "File Tools"],
   ["study", "⌬", "Study Tools"],
   ["productivity", "▧", "Productivity"],
+  ["social", "☷", "Social"],
   ["random", "⚄", "Random Lab"],
   ["qr", "▦", "QR Generator"],
   ["draw", "✎", "Drawing Pad"],
@@ -66,6 +67,7 @@ const defaults = {
   quickBookmarks: [],
   habits: [],
   focusStats: { completed: 0, minutes: 0, lastCompletedAt: 0 },
+  socialShortcuts: [],
   calcHistory: [],
   scores: { snake: 0, "2048": 0, mines: 0, ttt: 0, pong: 0, breakout: 0, connect4: 0, tron: 0, invaders: 0, memory: 0, chess: 0, checkers: 0 },
   settings: {
@@ -102,6 +104,7 @@ const Store = {
     if (!Array.isArray(this.data.sessionChecklist)) this.data.sessionChecklist = [];
     if (!Array.isArray(this.data.quickBookmarks)) this.data.quickBookmarks = [];
     if (!Array.isArray(this.data.habits)) this.data.habits = [];
+    if (!Array.isArray(this.data.socialShortcuts)) this.data.socialShortcuts = [];
     if (!this.data.focusStats || typeof this.data.focusStats !== "object") this.data.focusStats = structuredClone(defaults.focusStats);
     let changed = !this.data.todos.every(todo => todo.id && todo.priority && "dueDate" in todo && todo.createdAt && todo.updatedAt);
     if (!this.data.organizerMigrated) {
@@ -172,6 +175,14 @@ const Store = {
       minutes: Math.max(0, Number(this.data.focusStats.minutes) || 0),
       lastCompletedAt: Math.max(0, Number(this.data.focusStats.lastCompletedAt) || 0)
     };
+    this.data.socialShortcuts = this.data.socialShortcuts.map(link => ({
+      id: link.id || crypto.randomUUID(),
+      title: String(link.title || "Social link").slice(0, 100),
+      service: ["youtube", "gmail", "discord", "custom"].includes(link.service) ? link.service : "custom",
+      url: /^https?:\/\//i.test(String(link.url || "")) ? String(link.url).slice(0, 1000) : "",
+      createdAt: Number(link.createdAt) || now,
+      updatedAt: Number(link.updatedAt) || now
+    })).filter(link => link.url);
     if (changed) this.save();
   },
   save() {
@@ -684,7 +695,7 @@ function navigate(page) {
 
 function renderPage() {
   const content = $("#content");
-  const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, calendar: calendarPage, worldclock: worldClockPage, colors: colorToolsPage, convert: convertPage, text: textPage, developer: developerToolsPage, inspector: inspectorPage, files: fileToolsPage, study: studyToolsPage, productivity: productivityPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
+  const renderers = { home: homePage, calculator: calculatorPage, organizer: organizerPage, time: timePage, calendar: calendarPage, worldclock: worldClockPage, colors: colorToolsPage, convert: convertPage, text: textPage, developer: developerToolsPage, inspector: inspectorPage, files: fileToolsPage, study: studyToolsPage, productivity: productivityPage, social: socialPage, random: randomPage, qr: qrPage, draw: drawPage, page: pageControlsPage, games: gamesPage, settings: settingsPage, help: helpPage };
   setHTML(content, "");
   renderers[state.page](content);
   state.cleanup.push(enhanceSelects(content));
@@ -2204,6 +2215,69 @@ function productivityPage(root) {
   state.cleanup.push(() => { stopFocusInterval(); delete window.render_productivity_to_text; });
 }
 
+const SOCIAL_SERVICES = {
+  youtube: { label: "YouTube", home: "https://www.youtube.com/", subscriptions: "https://www.youtube.com/feed/subscriptions", history: "https://www.youtube.com/feed/history", search: query => `https://www.youtube.com/results?search_query=${encodeURIComponent(query.trim())}` },
+  gmail: { label: "Gmail", inbox: "https://mail.google.com/mail/u/0/#inbox", search: query => `https://mail.google.com/mail/u/0/#search/${encodeURIComponent(query.trim())}`, compose: ({ to, subject, body, mode }) => mode === "gmail" ? `https://mail.google.com/mail/?view=cm&fs=1${to ? `&to=${encodeURIComponent(to)}` : ""}${subject ? `&su=${encodeURIComponent(subject)}` : ""}${body ? `&body=${encodeURIComponent(body)}` : ""}` : `mailto:${encodeURIComponent(to || "")}${subject || body ? `?${new URLSearchParams({ subject: subject || "", body: body || "" }).toString()}` : ""}` },
+  discord: { label: "Discord", app: "https://discord.com/app" }
+};
+
+function socialPage(root) {
+  setHTML(root, pageFrame("SOCIAL", "Quick controls for social sites without iframe embedding or account access.", `<div class="grid">
+    <div class="card third social-card"><h3>YouTube</h3><div class="row wrap"><button data-social-open="https://www.youtube.com/">OPEN HOME</button><button data-social-open="https://www.youtube.com/feed/subscriptions">SUBSCRIPTIONS</button><button data-social-open="https://www.youtube.com/feed/history">HISTORY</button></div><input id="youtubeQuery" placeholder="Search YouTube"><div class="row wrap"><button id="youtubeSearch" class="primary">BUILD SEARCH</button><button id="youtubeOpenSearch">OPEN SEARCH</button><button id="youtubeCopySearch">COPY URL</button></div><div class="output" id="youtubeOutput">ENTER A SEARCH QUERY.</div></div>
+    <div class="card third social-card"><h3>Gmail</h3><div class="row wrap"><button data-social-open="https://mail.google.com/mail/u/0/#inbox">OPEN INBOX</button><button id="gmailOpenCompose">OPEN COMPOSE</button><button id="gmailCopyUrl">COPY URL</button></div><input id="gmailTo" placeholder="To"><input id="gmailSubject" placeholder="Subject"><textarea id="gmailBody" placeholder="Body"></textarea><input id="gmailSearchQuery" placeholder="Search mail"><div class="row wrap"><button id="gmailBuildMailto" class="primary">BUILD MAILTO</button><button id="gmailBuildCompose">BUILD GMAIL COMPOSE</button><button id="gmailBuildSearch">BUILD SEARCH</button></div><div class="output" id="gmailOutput">BUILD A COMPOSE OR SEARCH URL.</div></div>
+    <div class="card third social-card"><h3>Discord</h3><div class="row wrap"><button data-social-open="https://discord.com/app">OPEN WEB APP</button><button id="discordOpenSaved">OPEN SAVED URL</button><button id="discordCopySaved">COPY SAVED URL</button></div><input id="discordUrl" placeholder="https://discord.com/channels/..."><button id="discordSaveBuilt" class="primary">SET DISCORD URL</button><div class="output" id="discordOutput">SAVE A DISCORD SERVER OR CHANNEL URL.</div></div>
+    <div class="card full"><h3>Saved social shortcuts</h3><div class="split"><input id="socialTitle" placeholder="Shortcut title"><div class="select-field"><label class="select-label" for="socialService">Service</label><select id="socialService" class="select-full"><option value="youtube">YouTube</option><option value="gmail">Gmail</option><option value="discord">Discord</option><option value="custom">Custom</option></select></div></div><input id="socialUrl" placeholder="https://example.com"><div class="row wrap" style="margin-top:10px"><button id="saveSocialShortcut" class="primary">SAVE SHORTCUT</button><button id="clearSocialShortcut">CLEAR</button></div><div class="output" id="socialError">ONLY HTTP AND HTTPS URLS ARE SAVED.</div><div class="social-list" id="socialShortcutList"></div></div>
+  </div>`));
+  let youtubeUrl = "", gmailUrl = "", discordUrl = "", editingShortcut = null;
+  const socialState = { youtubeUrl, gmailUrl, discordUrl, shortcuts: Store.data.socialShortcuts.length };
+  const writeOutput = (id, value) => { $(id).textContent = value || "NO URL BUILT."; };
+  const openUrl = url => { if (url) window.open(url, "_blank", "noopener"); else toast("Build or save a URL first"); };
+  const copyText = async value => { try { await navigator.clipboard.writeText(value); toast("Copied"); } catch { toast("Copy failed"); } };
+  const updateState = () => { socialState.youtubeUrl = youtubeUrl; socialState.gmailUrl = gmailUrl; socialState.discordUrl = discordUrl; socialState.shortcuts = Store.data.socialShortcuts.length; };
+  const save = () => { Store.save(); paintShortcuts(); updateState(); };
+  const paintShortcuts = () => {
+    setHTML($("#socialShortcutList"), Store.data.socialShortcuts.length ? Store.data.socialShortcuts.map(link => `<div class="social-item"><span class="grow"><b>${escapeHtml(link.title)}</b><small>${escapeHtml(SOCIAL_SERVICES[link.service]?.label || "Custom")} · ${escapeHtml(link.url)}</small></span><button data-open-social="${link.id}">OPEN</button><button data-copy-social="${link.id}">COPY</button><button data-edit-social="${link.id}">EDIT</button><button data-delete-social="${link.id}" class="danger">DELETE</button></div>`).join("") : `<div class="organizer-empty">NO SOCIAL SHORTCUTS</div>`);
+    $$("[data-open-social]", root).forEach(button => button.onclick = () => openUrl(Store.data.socialShortcuts.find(item => item.id === button.dataset.openSocial)?.url));
+    $$("[data-copy-social]", root).forEach(button => button.onclick = () => copyText(Store.data.socialShortcuts.find(item => item.id === button.dataset.copySocial)?.url || ""));
+    $$("[data-edit-social]", root).forEach(button => button.onclick = () => { const link = Store.data.socialShortcuts.find(item => item.id === button.dataset.editSocial); if (!link) return; editingShortcut = link.id; $("#socialTitle").value = link.title; $("#socialService").value = link.service; $("#socialUrl").value = link.url; $("#saveSocialShortcut").textContent = "UPDATE SHORTCUT"; });
+    $$("[data-delete-social]", root).forEach(button => button.onclick = () => { Store.data.socialShortcuts = Store.data.socialShortcuts.filter(link => link.id !== button.dataset.deleteSocial); save(); });
+  };
+  $$("[data-social-open]", root).forEach(button => button.onclick = () => openUrl(button.dataset.socialOpen));
+  $("#youtubeSearch").onclick = () => { const query = $("#youtubeQuery").value.trim(); youtubeUrl = query ? SOCIAL_SERVICES.youtube.search(query) : ""; writeOutput("#youtubeOutput", youtubeUrl || "ERROR: ENTER A SEARCH QUERY."); updateState(); };
+  $("#youtubeOpenSearch").onclick = () => openUrl(youtubeUrl);
+  $("#youtubeCopySearch").onclick = () => copyText(youtubeUrl);
+  const buildGmail = mode => {
+    if (mode === "search") {
+      const query = $("#gmailSearchQuery").value.trim();
+      gmailUrl = query ? SOCIAL_SERVICES.gmail.search(query) : "";
+    } else {
+      gmailUrl = SOCIAL_SERVICES.gmail.compose({ to: $("#gmailTo").value.trim(), subject: $("#gmailSubject").value.trim(), body: $("#gmailBody").value.trim(), mode });
+    }
+    writeOutput("#gmailOutput", gmailUrl || "ERROR: ENTER A SEARCH QUERY.");
+    updateState();
+  };
+  $("#gmailBuildMailto").onclick = () => buildGmail("mailto");
+  $("#gmailBuildCompose").onclick = () => buildGmail("gmail");
+  $("#gmailBuildSearch").onclick = () => buildGmail("search");
+  $("#gmailOpenCompose").onclick = () => openUrl(gmailUrl || SOCIAL_SERVICES.gmail.inbox);
+  $("#gmailCopyUrl").onclick = () => copyText(gmailUrl);
+  $("#discordSaveBuilt").onclick = () => { const url = validHttpUrl($("#discordUrl").value.trim()); discordUrl = url && url.includes("discord.com/") ? url : ""; writeOutput("#discordOutput", discordUrl || "ERROR: ENTER A VALID DISCORD HTTPS URL."); updateState(); };
+  $("#discordOpenSaved").onclick = () => openUrl(discordUrl || SOCIAL_SERVICES.discord.app);
+  $("#discordCopySaved").onclick = () => copyText(discordUrl);
+  $("#saveSocialShortcut").onclick = () => {
+    const url = validHttpUrl($("#socialUrl").value.trim());
+    if (!url) { $("#socialError").textContent = "ERROR: ONLY HTTP AND HTTPS URLS CAN BE SAVED."; return; }
+    const now = Date.now(), title = ($("#socialTitle").value.trim() || new URL(url).hostname).slice(0, 100), service = $("#socialService").value;
+    if (editingShortcut) { const link = Store.data.socialShortcuts.find(item => item.id === editingShortcut); if (link) Object.assign(link, { title, service, url, updatedAt: now }); }
+    else Store.data.socialShortcuts.unshift({ id: crypto.randomUUID(), title, service, url, createdAt: now, updatedAt: now });
+    editingShortcut = null; $("#socialTitle").value = ""; $("#socialUrl").value = ""; $("#socialService").value = "youtube"; $("#saveSocialShortcut").textContent = "SAVE SHORTCUT"; $("#socialError").textContent = "SHORTCUT SAVED."; save();
+  };
+  $("#clearSocialShortcut").onclick = () => { editingShortcut = null; $("#socialTitle").value = ""; $("#socialUrl").value = ""; $("#socialService").value = "youtube"; $("#saveSocialShortcut").textContent = "SAVE SHORTCUT"; $("#socialError").textContent = "ONLY HTTP AND HTTPS URLS ARE SAVED."; };
+  paintShortcuts(); updateState();
+  window.render_social_to_text = () => JSON.stringify({ ...socialState, shortcutTitles: Store.data.socialShortcuts.map(link => link.title) });
+  state.cleanup.push(() => { delete window.render_social_to_text; });
+}
+
 function randomPage(root) {
   setHTML(root, pageFrame("RANDOM LAB", "Generate passwords, identifiers, and fair choices.", `<div class="grid">
     <div class="card"><h3>Password generator</h3><div class="row"><input type="number" id="passLength" min="4" max="128" value="20"><button id="makePass">GENERATE</button></div><label class="item"><input type="checkbox" id="symbols" checked style="width:auto"> Include symbols</label><div class="output" id="passOut"></div></div>
@@ -2813,6 +2887,7 @@ function helpPage(root) {
     <div class="card full"><h3>File Tools</h3><p class="muted">Inspect local files offline, resize images, preview text and CSV data, format JSON, preview simple YAML-style text, and generate secure checksums.</p></div>
     <div class="card full"><h3>Study Tools</h3><p class="muted">Create local flashcards, generate quiz prompts from notes, search formulas and elements, review unit-circle values, and solve common math helpers.</p></div>
     <div class="card full"><h3>Productivity</h3><p class="muted">Plan the day with manual snippet storage, session checklists, a visual focus timer, quick links, habit tracking, and a local daily dashboard.</p></div>
+    <div class="card full"><h3>Social</h3><p class="muted">Open and copy reliable quick links for YouTube, Gmail, and Discord in normal tabs without embedding blocked social sites inside the popup.</p></div>
     <div class="card full"><h3>Notes & Tasks</h3><p class="muted">Create searchable Markdown notes with tags, pins, archive and trash, plus prioritized tasks with local due dates and JSON backup.</p></div>
     <div class="card full"><h3>Customization</h3><p class="muted">Choose a Matrix, amber, cyan, or violet terminal theme; adjust digital-rain brightness and speed; switch between comfortable and compact layouts; and arrange favorite modules at the top of navigation and Quick Launch.</p></div>
     <div class="card full"><h3>Browser limitations</h3><p class="muted">Chrome blocks bookmarklets on protected pages including <code>chrome://</code>, the New Tab page, extension pages, and the Chrome Web Store. On ordinary sites, the dashboard opens in a separate resizable popup window.</p></div>
