@@ -137,3 +137,6 @@ Original prompt: Build the complete “Bookmarklet of Destiny” plan: a self-co
 - Reworked the achievement tooltip into a viewport-clamped floating overlay after visual QA found the per-badge tooltip could clip near the popup edge.
 - Verified preview and real-popup tooltip screenshots after the clamp fix.
 - Full automated suite passed three times after generated artifacts were rebuilt.
+- Fixed achievement tooltip anchoring so the floating box centers under the hovered/focused badge, clamps only at popup edges, and moves its arrow to point at the active achievement.
+- Added smoke assertions for left-column, right-column, and lower-row achievement tooltip geometry plus viewport bounds.
+- Verified left, right, lower-row, and real-popup tooltip screenshots after the anchoring fix.

@@ -2499,11 +2499,17 @@ function gamesPage(root) {
       tipText.textContent = badge.dataset.achievementDescription;
       tooltip.classList.remove("hidden");
       const rect = badge.getBoundingClientRect(), width = tooltip.offsetWidth, height = tooltip.offsetHeight;
-      let left = Math.min(Math.max(8, rect.left), Math.max(8, innerWidth - width - 8));
+      const badgeCenter = rect.left + rect.width / 2;
+      let left = badgeCenter - width / 2;
+      left = Math.min(Math.max(8, left), Math.max(8, innerWidth - width - 8));
       let top = rect.bottom + 8;
-      if (top + height > innerHeight - 8) top = Math.max(8, rect.top - height - 8);
+      let placement = "below";
+      if (top + height > innerHeight - 8) { top = Math.max(8, rect.top - height - 8); placement = "above"; }
+      const arrowLeft = Math.min(Math.max(14, badgeCenter - left - 5), Math.max(14, width - 18));
       tooltip.style.left = `${Math.round(left)}px`;
       tooltip.style.top = `${Math.round(top)}px`;
+      tooltip.style.setProperty("--tip-arrow-left", `${Math.round(arrowLeft)}px`);
+      tooltip.dataset.placement = placement;
     };
     $$(".achievement-badge", host).forEach(badge => {
       badge.onpointerenter = () => showTip(badge);

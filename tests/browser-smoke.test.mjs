@@ -1426,10 +1426,33 @@ test("Chess and Checkers support CPU, two-player, keyboard, and special UI state
     assert.equal(stats.savedGames.checkers, true);
     assert.ok(stats.achievements.includes("arcade:board-save"));
     assert.ok(stats.achievements.includes("arcade:resume"));
-    const lockedAchievement = page.locator('[data-achievement="arcade:score-500"]');
-    await lockedAchievement.hover();
-    await page.waitForFunction(() => !document.querySelector("#achievementTooltip").classList.contains("hidden"));
-    assert.equal(await page.locator("#achievementTooltip em").textContent(), "Reach a saved score of 500 or more.");
+    const assertAnchoredTooltip = async (id, text) => {
+      const selector = `[data-achievement="${id}"]`;
+      await page.locator(selector).hover();
+      await page.waitForFunction(() => !document.querySelector("#achievementTooltip").classList.contains("hidden"));
+      assert.equal(await page.locator("#achievementTooltip em").textContent(), text);
+      const geometry = await page.locator("#achievementTooltip").evaluate((tip, badgeSelector) => {
+        const badge = document.querySelector(badgeSelector);
+        const tipRect = tip.getBoundingClientRect();
+        const badgeRect = badge.getBoundingClientRect();
+        const badgeCenter = badgeRect.left + badgeRect.width / 2;
+        const expectedLeft = Math.min(Math.max(8, badgeCenter - tipRect.width / 2), Math.max(8, innerWidth - tipRect.width - 8));
+        const belowTop = badgeRect.bottom + 8;
+        const expectedPlacement = belowTop + tipRect.height > innerHeight - 8 ? "above" : "below";
+        const expectedTop = expectedPlacement === "above" ? Math.max(8, badgeRect.top - tipRect.height - 8) : belowTop;
+        const arrowLeft = parseFloat(getComputedStyle(tip).getPropertyValue("--tip-arrow-left"));
+        return { left: tipRect.left, right: tipRect.right, top: tipRect.top, expectedLeft, expectedTop, placement: tip.dataset.placement, expectedPlacement, arrowLeft, badgeCenter, tipLeft: tipRect.left, tipWidth: tipRect.width, viewportWidth: innerWidth };
+      }, selector);
+      assert.ok(Math.abs(geometry.left - geometry.expectedLeft) <= 2);
+      assert.ok(Math.abs(geometry.top - geometry.expectedTop) <= 2);
+      assert.equal(geometry.placement, geometry.expectedPlacement);
+      assert.ok(geometry.left >= 7);
+      assert.ok(geometry.right <= geometry.viewportWidth - 7);
+      assert.ok(Math.abs((geometry.tipLeft + geometry.arrowLeft + 5) - geometry.badgeCenter) <= Math.max(14, Math.abs(geometry.left - geometry.expectedLeft) + 2));
+    };
+    await assertAnchoredTooltip("arcade:first-record", "Save any single-player arcade record.");
+    await assertAnchoredTooltip("arcade:score-100", "Reach a saved score of 100 or more.");
+    await assertAnchoredTooltip("checkers:first-win", "Win a single-player Checkers match.");
     const earnedAchievement = page.locator('[data-achievement="arcade:board-save"]');
     assert.equal(await earnedAchievement.evaluate(node => node.classList.contains("earned")), true);
     await earnedAchievement.focus();
