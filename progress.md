@@ -140,3 +140,7 @@ Original prompt: Build the complete “Bookmarklet of Destiny” plan: a self-co
 - Fixed achievement tooltip anchoring so the floating box centers under the hovered/focused badge, clamps only at popup edges, and moves its arrow to point at the active achievement.
 - Added smoke assertions for left-column, right-column, and lower-row achievement tooltip geometry plus viewport bounds.
 - Verified left, right, lower-row, and real-popup tooltip screenshots after the anchoring fix.
+- Expanded Arcade Stats achievement tooltips with HOW and GAMES lines so each achievement lists the games or arcade context where it can be unlocked.
+- Updated browser smoke coverage to verify broad, score, and game-specific achievement tooltip game lists while preserving anchored positioning checks.
+- Visual QA confirmed HOW/GAMES tooltip content remains readable and anchored in preview and real-popup Arcade Stats.
+- Full automated suite passed three times after rebuilding generated artifacts.

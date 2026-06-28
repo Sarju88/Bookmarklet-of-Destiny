@@ -22,6 +22,8 @@ test("bookmarklet is generated and self-contained", async () => {
   assert.match(source, /AMERICAN CHECKERS/);
   assert.match(source, /ARCADE STATS/);
   assert.match(source, /Reach a saved score of 500 or more/);
+  assert.match(source, /2048, Breakout, Space Invaders, or Memory/);
+  assert.match(source, /GAMES:/);
   assert.match(source, /achievement-floating-tooltip/);
   assert.match(source, /SAVED CHESS MATCH/);
   assert.match(source, /Promote pawn/);

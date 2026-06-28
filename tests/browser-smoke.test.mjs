@@ -1426,11 +1426,12 @@ test("Chess and Checkers support CPU, two-player, keyboard, and special UI state
     assert.equal(stats.savedGames.checkers, true);
     assert.ok(stats.achievements.includes("arcade:board-save"));
     assert.ok(stats.achievements.includes("arcade:resume"));
-    const assertAnchoredTooltip = async (id, text) => {
+    const assertAnchoredTooltip = async (id, how, games) => {
       const selector = `[data-achievement="${id}"]`;
       await page.locator(selector).hover();
       await page.waitForFunction(() => !document.querySelector("#achievementTooltip").classList.contains("hidden"));
-      assert.equal(await page.locator("#achievementTooltip em").textContent(), text);
+      assert.equal(await page.locator("#achievementTooltip [data-tip-how]").textContent(), `HOW: ${how}`);
+      assert.equal(await page.locator("#achievementTooltip [data-tip-games]").textContent(), `GAMES: ${games}`);
       const geometry = await page.locator("#achievementTooltip").evaluate((tip, badgeSelector) => {
         const badge = document.querySelector(badgeSelector);
         const tipRect = tip.getBoundingClientRect();
@@ -1450,14 +1451,15 @@ test("Chess and Checkers support CPU, two-player, keyboard, and special UI state
       assert.ok(geometry.right <= geometry.viewportWidth - 7);
       assert.ok(Math.abs((geometry.tipLeft + geometry.arrowLeft + 5) - geometry.badgeCenter) <= Math.max(14, Math.abs(geometry.left - geometry.expectedLeft) + 2));
     };
-    await assertAnchoredTooltip("arcade:first-record", "Save any single-player arcade record.");
-    await assertAnchoredTooltip("arcade:score-100", "Reach a saved score of 100 or more.");
-    await assertAnchoredTooltip("checkers:first-win", "Win a single-player Checkers match.");
+    await assertAnchoredTooltip("arcade:first-record", "Save any single-player arcade record.", "2048, Snake Battle, Minesweeper Race, Tic-Tac-Toe, Pong, Breakout, Connect Four, Tron, Space Invaders, Memory, Chess, or Checkers.");
+    await assertAnchoredTooltip("arcade:score-500", "Reach a saved score of 500 or more.", "2048, Breakout, Space Invaders, or Memory.");
+    await assertAnchoredTooltip("checkers:first-win", "Win a single-player Checkers match.", "Checkers.");
     const earnedAchievement = page.locator('[data-achievement="arcade:board-save"]');
     assert.equal(await earnedAchievement.evaluate(node => node.classList.contains("earned")), true);
     await earnedAchievement.focus();
-    await page.waitForFunction(() => !document.querySelector("#achievementTooltip").classList.contains("hidden") && document.querySelector("#achievementTooltip em").textContent.includes("Chess or Checkers"));
-    assert.equal(await page.locator("#achievementTooltip em").textContent(), "Save a Chess or Checkers match.");
+    await page.waitForFunction(() => !document.querySelector("#achievementTooltip").classList.contains("hidden") && document.querySelector("#achievementTooltip [data-tip-games]").textContent.includes("Chess or Checkers"));
+    assert.equal(await page.locator("#achievementTooltip [data-tip-how]").textContent(), "HOW: Save a Chess or Checkers match.");
+    assert.equal(await page.locator("#achievementTooltip [data-tip-games]").textContent(), "GAMES: Chess or Checkers.");
     await page.keyboard.press("Escape");
     await page.waitForFunction(() => document.activeElement !== document.querySelector('[data-achievement="arcade:board-save"]'));
     await page.mouse.move(5, 5);

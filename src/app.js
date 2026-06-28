@@ -2406,15 +2406,15 @@ const ACHIEVEMENT_LABELS = {
   "chess:first-win": "Chess victory",
   "checkers:first-win": "Checkers victory"
 };
-const ACHIEVEMENT_DESCRIPTIONS = {
-  "arcade:first-record": "Save any single-player arcade record.",
-  "arcade:score-100": "Reach a saved score of 100 or more.",
-  "arcade:score-500": "Reach a saved score of 500 or more.",
-  "arcade:board-save": "Save a Chess or Checkers match.",
-  "arcade:resume": "Resume a saved Chess or Checkers match.",
-  "arcade:gamepad-seen": "Connect a browser-supported gamepad while Arcade is open.",
-  "chess:first-win": "Win a single-player Chess match.",
-  "checkers:first-win": "Win a single-player Checkers match."
+const ACHIEVEMENT_DETAILS = {
+  "arcade:first-record": { how: "Save any single-player arcade record.", games: "2048, Snake Battle, Minesweeper Race, Tic-Tac-Toe, Pong, Breakout, Connect Four, Tron, Space Invaders, Memory, Chess, or Checkers." },
+  "arcade:score-100": { how: "Reach a saved score of 100 or more.", games: "2048, Snake Battle, Minesweeper Race, Pong, Breakout, Space Invaders, or Memory." },
+  "arcade:score-500": { how: "Reach a saved score of 500 or more.", games: "2048, Breakout, Space Invaders, or Memory." },
+  "arcade:board-save": { how: "Save a Chess or Checkers match.", games: "Chess or Checkers." },
+  "arcade:resume": { how: "Resume a saved Chess or Checkers match.", games: "Chess or Checkers." },
+  "arcade:gamepad-seen": { how: "Connect a browser-supported gamepad while Arcade is open.", games: "Any arcade game while a supported gamepad is connected." },
+  "chess:first-win": { how: "Win a single-player Chess match.", games: "Chess." },
+  "checkers:first-win": { how: "Win a single-player Checkers match.", games: "Checkers." }
 };
 let soundContext = null;
 function arcadeSound(type = "tick") {
@@ -2442,7 +2442,7 @@ function awardAchievement(id) {
   }
 }
 function arcadeStatsPayload() {
-  return { game: "arcade-stats", scores: Store.data.scores, achievements: Object.keys(Store.data.achievements), achievementDescriptions: ACHIEVEMENT_DESCRIPTIONS, savedGames: Object.fromEntries(["chess","checkers"].map(id => [id, !!Store.data.savedGames[id]])), sound: !!Store.data.settings.sound };
+  return { game: "arcade-stats", scores: Store.data.scores, achievements: Object.keys(Store.data.achievements), achievementDetails: ACHIEVEMENT_DETAILS, savedGames: Object.fromEntries(["chess","checkers"].map(id => [id, !!Store.data.savedGames[id]])), sound: !!Store.data.settings.sound };
 }
 function startGamepadSupport(statusNode) {
   if (!("getGamepads" in navigator)) {
@@ -2488,15 +2488,16 @@ function gamesPage(root) {
   const mountStats = () => {
     const host = $("#gameHost"), achievementIds = Object.keys(Store.data.achievements);
     const achievementBadges = Object.entries(ACHIEVEMENT_LABELS).map(([id, label]) => {
-      const earned = !!Store.data.achievements[id], description = ACHIEVEMENT_DESCRIPTIONS[id] || "Complete this achievement in the arcade.";
-      return `<button type="button" class="achievement-badge ${earned ? "earned" : ""}" data-achievement="${escapeHtml(id)}" data-achievement-title="${escapeHtml(label)}" data-achievement-description="${escapeHtml(description)}" aria-describedby="achievementTooltip"><span>${earned ? "◆" : "◇"} ${escapeHtml(label)}</span><small>${earned ? "UNLOCKED" : "LOCKED"}</small></button>`;
+      const earned = !!Store.data.achievements[id], detail = ACHIEVEMENT_DETAILS[id] || { how: "Complete this achievement in the arcade.", games: "Arcade." };
+      return `<button type="button" class="achievement-badge ${earned ? "earned" : ""}" data-achievement="${escapeHtml(id)}" data-achievement-title="${escapeHtml(label)}" data-achievement-how="${escapeHtml(detail.how)}" data-achievement-games="${escapeHtml(detail.games)}" aria-describedby="achievementTooltip"><span>${earned ? "◆" : "◇"} ${escapeHtml(label)}</span><small>${earned ? "UNLOCKED" : "LOCKED"}</small></button>`;
     }).join("");
-    setHTML(host, `<div class="grid"><div class="card"><h3>Leaderboard</h3><div class="list">${Object.entries(Store.data.scores).map(([game, value]) => `<div class="item"><span class="grow">${escapeHtml(GAME_NAMES[game] || game)}</span><b>${value}</b></div>`).join("")}</div></div><div class="card"><h3>Achievements</h3><div class="achievement-grid">${achievementBadges}</div><div class="output" style="margin-top:10px">${achievementIds.length}/${Object.keys(ACHIEVEMENT_LABELS).length} ACHIEVEMENTS UNLOCKED</div></div><div class="card full"><h3>Saved board games</h3><div class="list"><div class="item"><span class="grow">Chess save</span><b>${Store.data.savedGames.chess ? "READY" : "EMPTY"}</b></div><div class="item"><span class="grow">Checkers save</span><b>${Store.data.savedGames.checkers ? "READY" : "EMPTY"}</b></div></div></div></div><div class="achievement-floating-tooltip hidden" id="achievementTooltip" role="tooltip"><b></b><em></em></div>`);
-    const tooltip = $("#achievementTooltip", host), tipTitle = $("b", tooltip), tipText = $("em", tooltip);
+    setHTML(host, `<div class="grid"><div class="card"><h3>Leaderboard</h3><div class="list">${Object.entries(Store.data.scores).map(([game, value]) => `<div class="item"><span class="grow">${escapeHtml(GAME_NAMES[game] || game)}</span><b>${value}</b></div>`).join("")}</div></div><div class="card"><h3>Achievements</h3><div class="achievement-grid">${achievementBadges}</div><div class="output" style="margin-top:10px">${achievementIds.length}/${Object.keys(ACHIEVEMENT_LABELS).length} ACHIEVEMENTS UNLOCKED</div></div><div class="card full"><h3>Saved board games</h3><div class="list"><div class="item"><span class="grow">Chess save</span><b>${Store.data.savedGames.chess ? "READY" : "EMPTY"}</b></div><div class="item"><span class="grow">Checkers save</span><b>${Store.data.savedGames.checkers ? "READY" : "EMPTY"}</b></div></div></div></div><div class="achievement-floating-tooltip hidden" id="achievementTooltip" role="tooltip"><b></b><em data-tip-how></em><em data-tip-games></em></div>`);
+    const tooltip = $("#achievementTooltip", host), tipTitle = $("b", tooltip), tipHow = $("[data-tip-how]", tooltip), tipGames = $("[data-tip-games]", tooltip);
     const hideTip = () => tooltip.classList.add("hidden");
     const showTip = badge => {
       tipTitle.textContent = badge.dataset.achievementTitle;
-      tipText.textContent = badge.dataset.achievementDescription;
+      tipHow.textContent = `HOW: ${badge.dataset.achievementHow}`;
+      tipGames.textContent = `GAMES: ${badge.dataset.achievementGames}`;
       tooltip.classList.remove("hidden");
       const rect = badge.getBoundingClientRect(), width = tooltip.offsetWidth, height = tooltip.offsetHeight;
       const badgeCenter = rect.left + rect.width / 2;
