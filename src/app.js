@@ -2406,6 +2406,16 @@ const ACHIEVEMENT_LABELS = {
   "chess:first-win": "Chess victory",
   "checkers:first-win": "Checkers victory"
 };
+const ACHIEVEMENT_DESCRIPTIONS = {
+  "arcade:first-record": "Save any single-player arcade record.",
+  "arcade:score-100": "Reach a saved score of 100 or more.",
+  "arcade:score-500": "Reach a saved score of 500 or more.",
+  "arcade:board-save": "Save a Chess or Checkers match.",
+  "arcade:resume": "Resume a saved Chess or Checkers match.",
+  "arcade:gamepad-seen": "Connect a browser-supported gamepad while Arcade is open.",
+  "chess:first-win": "Win a single-player Chess match.",
+  "checkers:first-win": "Win a single-player Checkers match."
+};
 let soundContext = null;
 function arcadeSound(type = "tick") {
   if (!Store.data.settings.sound) return;
@@ -2432,7 +2442,7 @@ function awardAchievement(id) {
   }
 }
 function arcadeStatsPayload() {
-  return { game: "arcade-stats", scores: Store.data.scores, achievements: Object.keys(Store.data.achievements), savedGames: Object.fromEntries(["chess","checkers"].map(id => [id, !!Store.data.savedGames[id]])), sound: !!Store.data.settings.sound };
+  return { game: "arcade-stats", scores: Store.data.scores, achievements: Object.keys(Store.data.achievements), achievementDescriptions: ACHIEVEMENT_DESCRIPTIONS, savedGames: Object.fromEntries(["chess","checkers"].map(id => [id, !!Store.data.savedGames[id]])), sound: !!Store.data.settings.sound };
 }
 function startGamepadSupport(statusNode) {
   if (!("getGamepads" in navigator)) {
@@ -2477,7 +2487,31 @@ function gamesPage(root) {
   const clearGame = () => { gameCleanup(); gameCleanup = () => {}; };
   const mountStats = () => {
     const host = $("#gameHost"), achievementIds = Object.keys(Store.data.achievements);
-    setHTML(host, `<div class="grid"><div class="card"><h3>Leaderboard</h3><div class="list">${Object.entries(Store.data.scores).map(([game, value]) => `<div class="item"><span class="grow">${escapeHtml(GAME_NAMES[game] || game)}</span><b>${value}</b></div>`).join("")}</div></div><div class="card"><h3>Achievements</h3><div class="achievement-grid">${Object.entries(ACHIEVEMENT_LABELS).map(([id, label]) => `<span class="${Store.data.achievements[id] ? "earned" : ""}">${Store.data.achievements[id] ? "◆" : "◇"} ${escapeHtml(label)}</span>`).join("")}</div><div class="output" style="margin-top:10px">${achievementIds.length}/${Object.keys(ACHIEVEMENT_LABELS).length} ACHIEVEMENTS UNLOCKED</div></div><div class="card full"><h3>Saved board games</h3><div class="list"><div class="item"><span class="grow">Chess save</span><b>${Store.data.savedGames.chess ? "READY" : "EMPTY"}</b></div><div class="item"><span class="grow">Checkers save</span><b>${Store.data.savedGames.checkers ? "READY" : "EMPTY"}</b></div></div></div></div>`);
+    const achievementBadges = Object.entries(ACHIEVEMENT_LABELS).map(([id, label]) => {
+      const earned = !!Store.data.achievements[id], description = ACHIEVEMENT_DESCRIPTIONS[id] || "Complete this achievement in the arcade.";
+      return `<button type="button" class="achievement-badge ${earned ? "earned" : ""}" data-achievement="${escapeHtml(id)}" data-achievement-title="${escapeHtml(label)}" data-achievement-description="${escapeHtml(description)}" aria-describedby="achievementTooltip"><span>${earned ? "◆" : "◇"} ${escapeHtml(label)}</span><small>${earned ? "UNLOCKED" : "LOCKED"}</small></button>`;
+    }).join("");
+    setHTML(host, `<div class="grid"><div class="card"><h3>Leaderboard</h3><div class="list">${Object.entries(Store.data.scores).map(([game, value]) => `<div class="item"><span class="grow">${escapeHtml(GAME_NAMES[game] || game)}</span><b>${value}</b></div>`).join("")}</div></div><div class="card"><h3>Achievements</h3><div class="achievement-grid">${achievementBadges}</div><div class="output" style="margin-top:10px">${achievementIds.length}/${Object.keys(ACHIEVEMENT_LABELS).length} ACHIEVEMENTS UNLOCKED</div></div><div class="card full"><h3>Saved board games</h3><div class="list"><div class="item"><span class="grow">Chess save</span><b>${Store.data.savedGames.chess ? "READY" : "EMPTY"}</b></div><div class="item"><span class="grow">Checkers save</span><b>${Store.data.savedGames.checkers ? "READY" : "EMPTY"}</b></div></div></div></div><div class="achievement-floating-tooltip hidden" id="achievementTooltip" role="tooltip"><b></b><em></em></div>`);
+    const tooltip = $("#achievementTooltip", host), tipTitle = $("b", tooltip), tipText = $("em", tooltip);
+    const hideTip = () => tooltip.classList.add("hidden");
+    const showTip = badge => {
+      tipTitle.textContent = badge.dataset.achievementTitle;
+      tipText.textContent = badge.dataset.achievementDescription;
+      tooltip.classList.remove("hidden");
+      const rect = badge.getBoundingClientRect(), width = tooltip.offsetWidth, height = tooltip.offsetHeight;
+      let left = Math.min(Math.max(8, rect.left), Math.max(8, innerWidth - width - 8));
+      let top = rect.bottom + 8;
+      if (top + height > innerHeight - 8) top = Math.max(8, rect.top - height - 8);
+      tooltip.style.left = `${Math.round(left)}px`;
+      tooltip.style.top = `${Math.round(top)}px`;
+    };
+    $$(".achievement-badge", host).forEach(badge => {
+      badge.onpointerenter = () => showTip(badge);
+      badge.onpointerleave = hideTip;
+      badge.onfocus = () => showTip(badge);
+      badge.onblur = hideTip;
+      badge.onkeydown = event => { if (event.key === "Escape") { hideTip(); badge.blur(); } };
+    });
     window.render_game_to_text = () => JSON.stringify(arcadeStatsPayload());
     window.advanceTime = () => {};
   };

@@ -128,3 +128,12 @@ Original prompt: Build the complete “Bookmarklet of Destiny” plan: a self-co
 - Updated popup launcher to read saved popup layout, clamp it to the available screen, and save popup size/position best-effort.
 - Applied appearance settings through dashboard CSS variables so modules inherit changes without affecting the opener page.
 - Updated Help, README, browser smoke coverage, and generated artifacts for the Stage 6 appearance controls.
+
+## Arcade achievement tooltip progress
+
+- Added Matrix-styled achievement tooltip overlays in Arcade Stats for locked and unlocked badges.
+- Added exact unlock instructions for every achievement without changing achievement storage or unlock logic.
+- Added browser smoke coverage for hover, keyboard focus, earned/locked tooltip text, and Escape hiding.
+- Reworked the achievement tooltip into a viewport-clamped floating overlay after visual QA found the per-badge tooltip could clip near the popup edge.
+- Verified preview and real-popup tooltip screenshots after the clamp fix.
+- Full automated suite passed three times after generated artifacts were rebuilt.
